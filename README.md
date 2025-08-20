@@ -8,15 +8,15 @@ It's currently provided as single notebook (scSketch.ipynb) with all the widget 
 
 The scSketch.ipynb requires a number of Python packages to be installed in order to run. There are two ways to install the dependencies, either with juv or creating a conda environment, as explained below
 
-## Running the notebook with juv
+### Running the notebook with juv
 
-To run the notebook, first install [juv](https://github.com/manzt/juv) and call: 
+To run the notebook, first install [juv](https://github.com/manzt/juv) and then call: 
 
 ```juv run scSketch.ipynb```
 
-## Creating a conda environment
+### Creating a conda environment
 
-ASsuming that conda is already installed on the system, create an environment with all required dependencies:
+Assuming that conda is already installed on the system, create an environment with all required dependencies:
 
 ```conda create --name scsketch --file requirements.txt --channel conda-forge python=3.12```
 
