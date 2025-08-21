@@ -1,35 +1,35 @@
-# scSketch project
+# scsketch
 
-scSketch is an interactive exploration tool of single-cell embeddings (UMAP, tSNE, etc.) for Python notebooks. It is based on the [jupyter-scatter widget](https://jupyter-scatter.dev/) by [Fritz Lekschas](https://lekschas.de/) and it reimplements the earlier [SCIViwewer visualizer](https://github.com/colabobio/sciviewer).
+## Installation
 
-It's currently provided as single notebook (scSketch.ipynb) with all the widget components and calculations in it. Plans involve to make it available as a package for easier installation.
+```sh
+pip install scsketch
+```
 
-## Usage
+or with [uv](https://github.com/astral-sh/uv):
 
-The scSketch.ipynb requires a number of Python packages to be installed in order to run. There are two ways to install the dependencies, either with juv or creating a conda environment, as explained below
+```sh
+uv add scsketch
+```
 
-### Running the notebook with juv
+## Development
 
-To run the notebook, first install [juv](https://github.com/manzt/juv) and then call: 
+We recommend using [uv](https://github.com/astral-sh/uv) for development.
+It will automatically manage virtual environments and dependencies for you.
 
-```juv run scSketch.ipynb```
+```sh
+uv run jupyter lab example.ipynb
+```
 
-### Creating a conda environment
+Alternatively, create and manage your own virtual environment:
 
-Assuming that conda is already installed on the system, create an environment with all required dependencies:
+```sh
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+jupyter lab example.ipynb
+```
 
-```conda create --name scsketch --file requirements.txt --channel conda-forge python=3.12```
-
-Once the environemnt is sucesfully created, activate it:
-
-```conda activate scsketch```
-
-and once in there, install the jupyter-scatter-scsketch package using pip:
-
-```pip install jupyter-scatter-scsketch```
-
-Once all of this is completed, launch JupyterLab in the current folder:
-
-```jupyter lab```
-
-and open the notebook.
+Open `example.ipynb` in JupyterLab, VS Code, or your favorite editor
+to start developing. Changes made in `src/scsketch/static/` will be reflected
+in the notebook.
