@@ -2,8 +2,6 @@ node_modules
 .venv
 dist
 .DS_Store
-*.h5ad
-data
 
 # Python
 __pycache__

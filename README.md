@@ -18,7 +18,7 @@ We recommend using [uv](https://github.com/astral-sh/uv) for development.
 It will automatically manage virtual environments and dependencies for you.
 
 ```sh
-uv run jupyter lab example.ipynb
+uv run jupyter lab demo.ipynb
 ```
 
 Alternatively, create and manage your own virtual environment:
@@ -27,9 +27,9 @@ Alternatively, create and manage your own virtual environment:
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-jupyter lab example.ipynb
+jupyter lab demo.ipynb
 ```
 
-Open `example.ipynb` in JupyterLab, VS Code, or your favorite editor
+Open `demo.ipynb` in JupyterLab, VS Code, or your favorite editor
 to start developing. Changes made in `src/scsketch/static/` will be reflected
 in the notebook.

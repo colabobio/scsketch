@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scsketch"
-version = "0.0.0"
-dependencies = ["anywidget", "jupyter-scatter-scsketch>=0.21.0", "llvmlite>=0.44.0", "numpy", "pandas", "scanpy", "watchfiles", "requests"]
+version = "0.0.1"
+dependencies = ["anywidget"]
 readme = "README.md"
 
 # For projects not using `uv`, you can install these development dependencies with:
