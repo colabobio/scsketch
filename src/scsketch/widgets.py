@@ -224,26 +224,49 @@ class CorrelationTable(AnyWidget):
       const MAX_ROWS = 200; //minimum visible rows at a time
 
       const initializeTable = () => {
+        const data = model.get("data") || [];
+
+        //Always show these columns, in this order:
+        const columns = ["Gene", "R", "p", "Selection"];  //removed "alpha_i" and "reject"
+        
+        //Header
         const headerRow = document.createElement("tr");
-        ["Gene", "R", "p"].forEach(col => {
+        columns.forEach(col => {
           const th = document.createElement("th");
           th.textContent = col;
           headerRow.appendChild(th);
         });
         table.appendChild(headerRow);
 
-        rowsCache = model.get("data").map(row => {
+        rowsCache = data.map(row => {
           const tr = document.createElement("tr");
-          tr.dataset.gene = row["Gene"].toLowerCase();
+          const geneVal = (row["Gene"] ?? "").toString();
+          tr.dataset.gene = geneVal.toLowerCase();
           tr.style.cursor = "pointer";
           tr.onclick = () => {
-            model.set("selected_gene", row["Gene"]);
-            model.save_changes();
+            if (geneVal){      
+              model.set("selected_gene", geneVal);
+              model.save_changes();
+            }
           };
 
-          ["Gene", "R", "p"].forEach(col => {
+          columns.forEach(col => {
             const td = document.createElement("td");
-            td.textContent = row[col];
+            const val = row[col];
+            
+            if (col === "R" || col === "alpha_i") {
+            // format to 4 decimal places if numeric
+              const num = Number(val);
+              td.textContent = Number.isFinite(num) ? num.toFixed(4) : (val ?? "");
+            } else if (col === "p"){
+                const num = Number(val);
+                td.textContent = Number.isFinite(num) ? num.toExponential(3) : (val ?? "");
+            } else if (col === "reject") {
+                td.textContent = typeof val === "boolean" ? (val ? "Pass" : "") : (val ?? "");
+            } else {
+                td.textContent = (val ?? "").toString();
+            }
+            
             tr.appendChild(td);
           });
 

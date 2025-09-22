@@ -7,7 +7,7 @@ from IPython.display import display, HTML
 from ipywidgets import Checkbox, Dropdown, GridBox, HBox, Layout, IntText, Text, VBox
 from jscatter import Scatter, glasbey_light, link, okabe_ito, Line
 from jscatter.widgets import Button
-from matplotlib.colors import to_hex
+from matplotlib.colors import to_hex, to_rgba
 from scipy.spatial import ConvexHull
 import scipy.stats as ss
 import requests
@@ -17,8 +17,121 @@ from .widgets import (
     InteractiveSVG, Label, Div
 )
 
+from typing import Optional 
+import ipywidgets as ipyw
+
+from matplotlib.path import Path
+
+def find_equidistant_vertices(vertices: np.ndarray, n_points: int) -> np.ndarray:
+    seg = np.diff(vertices, axis=0)
+    seg_len = np.linalg.norm(seg, axis=1)
+    cum = np.concatenate(([0.0], np.cumsum(seg_len)))
+    total = cum[-1]
+    targets = np.linspace(0.0, total, n_points)
+    out = np.zeros((n_points, 2))
+    for i, t in enumerate(targets):
+        j = max(0, min(np.searchsorted(cum, t, side="right")-1, len(seg)-1))
+        alpha = (t - cum[j]) / (seg_len[j] if seg_len[j] else 1.0)
+        out[i] = vertices[j] + alpha * seg[j]
+    return out
+
+def split_line_at_points(vertices: np.ndarray, split_points: np.ndarray) -> list[np.ndarray]:
+    if len(split_points) < 2:
+        return []
+    return [np.vstack([split_points[i], split_points[i+1]]) for i in range(len(split_points)-1)]
+
+def split_line_equidistant(vertices: np.ndarray, n_points: int) -> list[np.ndarray]:
+    return split_line_at_points(vertices, find_equidistant_vertices(vertices, n_points))
+
+def points_in_polygon(points: np.ndarray, polygon: np.ndarray) -> np.ndarray:
+    return Path(polygon).contains_points(points)
+
+# Inside view(), where Selection is defined
+@dataclass
+class Context:
+    df: pd.DataFrame
+    selections: object
+    scatter: object
+    ui: ipyw.Widget
+    pathway_table_container: ipyw.Widget
+    reactome_diagram_container: ipyw.Widget
+
+_last_context: Optional[Context] = None
+
+def get_context() -> Optional[Context]:
+    """Return the most recent scSketch view context (or None if not created yet)."""
+    return _last_context
+###############################################################################################################################
+def test_direction(X, projection):
+    rs = np.corrcoef(projection, X, rowvar=False)[0, 1:]
+
+    n = len(X)
+    T = -np.abs(rs * np.sqrt(n - 2)) / np.sqrt(1 - (rs**2))
+    return {"correlation": rs, "p_value": ss.t.cdf(T, df=n - 2) * 2}
+
+
+def lord_test(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005):
+    """"
+    This is a translation of "version 1" under:
+
+    https://github.com/bioc/onlineFDR/blob/devel/src/lord.cpp
+    
+    The only changes are that we don't recompute threhsolds for hypotheses that
+    we have already seen. This only necessary because we may continue testing
+    for many directions.
+    """
+    N = len(pval)
+
+    if gammai is None:
+        gammai = (
+            0.07720838
+            * np.log(np.maximum(np.arange(1, N + 2), 2))
+            / (np.arange(1, N + 2) * np.exp(np.sqrt(np.log(np.arange(1, N + 2)))))
+        )
+
+    # setup variables, substituting previous results if needed
+    alphai = np.zeros(N)
+    R = np.zeros(N, dtype=bool)
+    tau = []
+    if initial_results is not None:
+        N0 = len(initial_results["p_value"])
+        alphai[range(N0)] = initial_results["alpha_i"]
+        R[range(N0)] = initial_results["R"]
+        tau = initial_results["tau"]
+    else:
+        N0 = 1
+        alphai[0] = gammai[0] * w0
+        R[0] = pval[0] <= alphai[0]
+        if R[0]:
+            tau.append(0)
+
+    # compute lord thresholds iteratively
+    K = int(np.sum(R))
+    for i in range(N0, N):
+        if K <= 1:
+            if R[i - 1]:
+                tau = [i - 1]
+            Cjsum = sum(gammai[i - tau[j] - 1] for j in range(K))
+            alphai[i] = w0 * gammai[i] + (alpha - w0) * Cjsum
+        else:
+            if R[i - 1]:
+                tau.append(i - 1)
+            tau2 = tau[1:]
+            Cjsum = sum(gammai[i - tau2[j] - 1] for j in range(K - 1))
+            alphai[i] = (
+                w0 * gammai[i] + (alpha - w0) * gammai[i - tau[0] - 1] + alpha * Cjsum
+            )
+
+        if pval[i] <= alphai[i]:
+            R[i] = True
+            K += 1
+
+    return {"p_value": pval, "alpha_i": alphai, "R": R, "tau": tau}
+
+###############################################################################################################################
+
 #Widget Composition - Finally, we're going to instantiate the scatter plot and all the other widgets and link them using their traits. The output is the UI you've been waiting for :)
-def view(adata, metadata_cols=None, max_gene_options=50):
+def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     """
     Visualize an AnnData object in scSketch.
 
@@ -154,6 +267,7 @@ def view(adata, metadata_cols=None, max_gene_options=50):
         color: str
         lasso: Line
         hull: Line
+        path: np.ndarray | None = None 
     
     
     @dataclass
@@ -171,6 +285,9 @@ def view(adata, metadata_cols=None, max_gene_options=50):
     
         def all_hulls(self) -> list[Line]:
             return [s.hull for s in self.selections]
+
+        def all_lassos(self) -> list[Line]:
+            return [s.lasso for s in self.selections]
     
     
     @dataclass
@@ -185,8 +302,18 @@ def view(adata, metadata_cols=None, max_gene_options=50):
     
     
     def update_annotations():
-        lasso_polygon = [] if lasso.polygon is None else [lasso.polygon]
-        scatter.annotations(selections.all_hulls() + lasso_polygon)
+        anns = []
+        #draw each saved subdivided rectangle
+        anns.extend([s.lasso for s in selections.selections])
+        #draw their hulls
+        anns.extend(selections.all_hulls())
+        #draw the in-progress lasso polygon if present
+        if lasso.polygon is not None:
+            anns.append(lasso.polygon)
+        scatter.annotations(anns)
+        
+        # lasso_polygon = [] if lasso.polygon is None else [lasso.polygon]
+        # scatter.annotations(selections.all_hulls() + [s.lasso for s in selections.selections] + lasso_polygon)
     
     
     def lasso_selection_polygon_change_handler(change):
@@ -325,55 +452,79 @@ def view(adata, metadata_cols=None, max_gene_options=50):
     
     
     def add_subdivided_selections():
-        lasso_polygon = scatter.widget.lasso_selection_polygon
-        lasso_points = lasso_polygon.shape[0]
+        try:        
+            lasso_polygon = scatter.widget.lasso_selection_polygon
+            if lasso_polygon is None or lasso_polygon.shape[0] < 4:
+                return
+                
+            lasso_points = lasso_polygon.shape[0]
+        
+            lasso_mid = int(lasso_polygon.shape[0] / 2)
+            lasso_spine = (lasso_polygon[:lasso_mid, :] + lasso_polygon[lasso_mid:, :]) / 2
+        
+            lasso_part_one = lasso_polygon[:lasso_mid, :]
+            lasso_part_two = lasso_polygon[lasso_mid:, :][::-1]
+        
+            n_split_points = selection_num_subdivisions.value + 1
+        
+            sub_lassos_part_one = split_line_equidistant(lasso_part_one, n_split_points)
+            sub_lassos_part_two = split_line_equidistant(lasso_part_two, n_split_points)
+        
+            base_name = selection_name.value
+            if len(base_name) == 0:
+                base_name = f"Selection {len(selections.selections) + 1}"
+        
+            color_map = continuous_color_maps[selection_num_subdivisions.value]
+        
+            for i, part_one in enumerate(sub_lassos_part_one):
+                polygon = np.vstack((part_one, sub_lassos_part_two[i][::-1]))
+                idxs = np.where(points_in_polygon(df[["x", "y"]].values, polygon))[0]
+                points = df.iloc[idxs][["x", "y"]].values
+                hull = ConvexHull(points)
+                hull_points = np.vstack((points[hull.vertices], points[hull.vertices[0]]))
+                color = color_map[i]
+                name = f"{base_name}.{i + 1}"
+                #close the polygon loop
+                lasso_polygon = polygon.tolist()
+                lasso_polygon.append(lasso_polygon[0])
+
+                lasso_polygon = [tuple(p) for p in lasso_polygon]
     
-        lasso_mid = int(lasso_polygon.shape[0] / 2)
-        lasso_spine = (lasso_polygon[:lasso_mid, :] + lasso_polygon[lasso_mid:, :]) / 2
-    
-        lasso_part_one = lasso_polygon[:lasso_mid, :]
-        lasso_part_two = lasso_polygon[lasso_mid:, :][::-1]
-    
-        n_split_points = selection_num_subdivisions.value + 1
-    
-        sub_lassos_part_one = split_line_equidistant(lasso_part_one, n_split_points)
-        sub_lassos_part_two = split_line_equidistant(lasso_part_two, n_split_points)
-    
-        base_name = selection_name.value
-        if len(base_name) == 0:
-            base_name = f"Selection {len(selections.selections) + 1}"
-    
-        color_map = continuous_color_maps[selection_num_subdivisions.value]
-    
-        for i, part_one in enumerate(sub_lassos_part_one):
-            polygon = np.vstack((part_one, sub_lassos_part_two[i][::-1]))
-            idxs = np.where(points_in_polygon(df[["x", "y"]].values, polygon))[0]
-            points = df.iloc[idxs][["x", "y"]].values
-            hull = ConvexHull(points)
-            hull_points = np.vstack((points[hull.vertices], points[hull.vertices[0]]))
-            color = color_map[i]
-            name = f"{base_name}.{i + 1}"
-    
-            lasso_polygon = polygon.tolist()
-            lasso_polygon.append(lasso_polygon[0])
-    
-            selection = Selection(
-                index=len(selections.selections) + 1,
-                name=name,
-                points=idxs,
-                color=color,
-                lasso=Line(lasso_polygon),
-                hull=Line(hull_points, line_color=color, line_width=2),
-            )
-            selections.selections.append(selection)
-            add_selection_element(selection)
+                selection = Selection(
+                    index=len(selections.selections) + 1,
+                    name=name,
+                    points=idxs,
+                    color=color,
+                    lasso=Line(lasso_polygon, line_color=to_rgba(color), line_width=2),
+                    hull=Line(hull_points, line_color=to_rgba(color), line_width=2),
+                    path=lasso_spine,
+                )
+                selections.selections.append(selection)
+                add_selection_element(selection)
+            
+            update_annotations()
+            print(f"[debug] subdivide added {len(sub_lassos_part_one)} rectanlges; total selections: {len(selections.selections)}")
+        except Exception as e:
+            import traceback; traceback.print_exc()
     
     
     def add_selection():
         idxs = scatter.selection()
         points = df.iloc[idxs][["x", "y"]].values
+        
         hull = ConvexHull(points)
         hull_points = np.vstack((points[hull.vertices], points[hull.vertices[0]]))
+
+        # Build brush spine (midline of polygon) 
+        spine = None
+        if scatter.widget.lasso_type == "brush":
+            lp = np.asarray(scatter.widget.lasso_selection_polygon)
+            if lp.shape[0] >= 2:
+                if lp.shape[0] % 2 == 1:
+                    lp = lp[:-1]
+                mid = lp.shape[0] // 2
+                spine = (lp[:mid, :] + lp[mid:, :]) / 2
+        
         color = available_colors.pop(0)
     
         name = selection_name.value
@@ -390,32 +541,35 @@ def view(adata, metadata_cols=None, max_gene_options=50):
             color=color,
             lasso=Line(lasso_polygon),
             hull=Line(hull_points, line_color=color, line_width=2),
+            path=spine,
         )
         selections.selections.append(selection)
         add_selection_element(selection)
     
     
     def selection_add_handler(event):
-        lasso.polygon = None
-    
-        if scatter.widget.lasso_type == "brush" and selection_subdivide.value:
-            add_subdivided_selections()
-        else:
-            add_selection()
-    
-        compute_predicates.disabled = False
-    
-        scatter.selection([])
-        update_annotations()
-    
-        if len(selections.selections) > 1:
-            compute_predicates_wrapper.children = (
-                compute_predicates_between_selections,
-                compute_predicates,
-            )
-        else:
-            compute_predicates_wrapper.children = (compute_predicates,)
-    
+        try:        
+            lasso.polygon = None
+        
+            if scatter.widget.lasso_type == "brush" and selection_subdivide.value:
+                add_subdivided_selections()
+            else:
+                add_selection()
+        
+            compute_predicates.disabled = False
+        
+            scatter.selection([])
+            update_annotations()
+        
+            if len(selections.selections) > 1:
+                compute_predicates_wrapper.children = (
+                    compute_predicates_between_selections,
+                    compute_predicates,
+                )
+            else:
+                compute_predicates_wrapper.children = (compute_predicates,)
+        except Exception as e:
+            import traceback; traceback.print_exc()
     
     selection_add.on_click(selection_add_handler)
     
@@ -502,11 +656,19 @@ def view(adata, metadata_cols=None, max_gene_options=50):
     
         for i, result in enumerate(directional_results):
             for entry in result:
+                #If Online FDR fields are present, hide non-significant genes
+                if "reject" in entry and not entry["reject"]:
+                    continue
+                
                 all_results.append(
                     {
                         "Gene": entry["attribute"],
-                        "R": round(entry["interval"][0], 4),
-                        "p": round(entry["interval"][1], 6),
+                        "R": float(np.round(entry["interval"][0], 4)),
+                        "p": f"{entry['interval'][1]:.3e}",
+                        # Extra fields are appended to the row (widget will ignore extra columns)
+                        # "alpha_i": float(entry.get("alpha_i", float("nan"))),
+                        # "reject": bool(entry.get("reject", False)),ß
+                        "Selection": entry.get("direction", f"Selection {i+1}"),
                     }
                 )
     
@@ -589,6 +751,8 @@ def view(adata, metadata_cols=None, max_gene_options=50):
     import scipy.stats as ss
     import pandas as pd
     
+    batch_results = None
+    online_results = None
     
     def compute_directional_analysis(df, selections):
         # Computes the correlation of gene expression along a directional axis.
@@ -597,7 +761,11 @@ def view(adata, metadata_cols=None, max_gene_options=50):
         # selections (Selections): The selected points for directional analysis.
         # Returns:
         #     list: A list of dictionaries containing the computed correlations.
-    
+        #Computes correlation along the selection's direction and appends Online FDR fields.
+        #Only genes passing Online FDR are returned.
+
+        nonlocal batch_results, online_results #keep LORD++ state across button clicks
+        
         if len(selections.selections) == 0:
             return []
     
@@ -631,21 +799,83 @@ def view(adata, metadata_cols=None, max_gene_options=50):
             columns_to_drop = [col for col in set(base_drop).union(extra_meta) if col in df.columns]
             
             selected_expression = df.iloc[selected_indices].drop(columns=columns_to_drop, errors="ignore")
-    
+
+            # Vectorized per-gene correlation and p-values for THIS selection only
+            batch_result_new = test_direction(selected_expression.values, projections) # {'correlation': r, 'p_value':p}
+            rs = batch_result_new["correlation"].astype(float)
+            ps = batch_result_new["p_value"].astype(float)
+            genes = list(selected_expression.columns)
+            n_new = len(ps)
+
+            #Append to the running Online FDR stream and compute new thresholds for the new tail
+            prev_len = 0 if (batch_results is None) else len(batch_results["p_value"])
+            p_values = ps if (batch_results is None) else np.concatenate([batch_results["p_value"], ps])
+            
+            online_results_new = lord_test(p_values, online_results, alpha=fdr_alpha)
+            online_results = online_results_new
+            batch_results = {"p_value": p_values} #keep the accumulated stream in the same variable name
+
+            #Extract the chunk belonging to THIS selection
+            alpha_chunk = online_results_new["alpha_i"][prev_len:prev_len + n_new]
+            R_chunk = online_results_new["R"][prev_len:prev_len + n_new]
+
+            #Build output rows: append alpha_i/reject and filter to keep only significant genes
+            
             # Compute correlations
             correlations = []
-            for gene in selected_expression.columns:
-                r, p = ss.pearsonr(projections, selected_expression[gene])
+            # for gene in selected_expression.columns:
+            #     r, p = ss.pearsonr(projections, selected_expression[gene])
+            #     correlations.append(
+            #         {
+            #             "attribute": gene,
+            #             "interval": (r, p),
+            #             "quality": abs(
+            #                 r
+            #             ),  # Use absolute correlation as a measure of quality
+            #         }
+            #     )
+            for j, gene in enumerate(genes):
+                if not bool(R_chunk[j]):
+                    continue # hide non-significant genes
+
+                r = float(rs[j])
+                p = float(ps[j])
+                a = float(alpha_chunk[j])
+                
                 correlations.append(
                     {
                         "attribute": gene,
-                        "interval": (r, p),
-                        "quality": abs(
-                            r
-                        ),  # Use absolute correlation as a measure of quality
+                        "interval": (r, p),     #(correlation, p-value)
+                        "quality": abs(r),
+                        "alpha_i": a,          #Online FDR threshold used for this gene
+                        "reject": True,        #passed Online FDR 
+                        "direction": selection.name, #keep which selection this came from
                     }
                 )
-    
+            # batch_result_new = test_direction(adata.X, projections)
+            
+            # if batch_results == None:
+            #     p_values = batch_result_new["p_value"]
+            # else:
+            #     p_values = np.concatenate([batch_result["p_value"], batch_result_new["p_value"]])
+            #     batch_results = batch_result_new
+            
+            # online_result_new = lord_test(p_values, online_results, alpha=fdr_alpha)
+            # online_results = online_result_new
+
+            # for gene in selected_expression.columns:
+            #     r,p = ss.pearsonr(projections, selected_expression[gene])
+            #     correlations.append(
+            #         {
+            #             "attribute": gene, 
+            #             "interval": (r, p),
+            #             "quality": abs(
+            #                 r
+            #             ),
+            #             "onlineFDR": online_,
+            #         }
+            #     )
+            
             results.append(correlations)
     
         return results
@@ -655,29 +885,51 @@ def view(adata, metadata_cols=None, max_gene_options=50):
     
     
     def compute_predicates_handler(event):
-        if len(selections.selections) == 0:
-            return
+        try:
+            
+            if len(selections.selections) == 0:
+                return
+        
+            compute_predicates.disabled = True
+            compute_predicates.description = "Computing Directional Analysis…"
     
-        compute_predicates.disabled = True
-        compute_predicates.description = "Computing Directional Analysis…"
+            if compute_predicates_between_selections.value:
+                #compare mode: use all saved selections 
+                sels_for_run = selections
+            else:
+                #default: only the most recent selection
+                #build a temporary Selections with the last one
+                last_only = Selections(selections=[selections.selections[-1]])
+                sels_for_run = last_only
     
-        # Compute directional correlations
-        directional_results = compute_directional_analysis(df, selections)
+            #Compute directional correlations for the chosen selection(s)
+            directional_results = compute_directional_analysis(df, sels_for_run)
     
-        # Display in a table instead of histogram
-        show_directional_results(directional_results)
+            #Show only what we just computed (i.e., last selection if not comparing)
+            show_directional_results(directional_results)
+            
+        except Exception:
+            import traceback; traceback.print_exc()
+        finally:
+            compute_predicates.disabled = False
+            #compute_predicates.description = "Compute Directional Search" #optional restore
     
-        compute_predicates.disabled = False
-        from IPython.display import display
-        import ipywidgets as widgets
+
+        
+        # # Compute directional correlations
+        # directional_results = compute_directional_analysis(df, selections)
     
-        debug_output = widgets.Output()
-        display(debug_output)
-        with debug_output:
-            print("Running directional analysis...")
+        # # Display in a table instead of histogram
+        # show_directional_results(directional_results)
     
+        # compute_predicates.disabled = False
+        # from IPython.display import display
+        # import ipywidgets as widgets
     
-    compute_predicates.on_click(compute_predicates_handler)
+        # debug_output = widgets.Output()
+        # display(debug_output)
+        # with debug_output:
+        #     print("Running directional analysis...")
     
     
     compute_predicates.on_click(compute_predicates_handler)
@@ -856,3 +1108,15 @@ def view(adata, metadata_cols=None, max_gene_options=50):
     
     # Display the final layout
     display(final_layout_updated)
+
+    global _last_context
+    ctx = Context(
+        df=df,
+        selections=selections,
+        scatter=scatter,
+        ui=final_layout_updated,
+        pathway_table_container=pathway_table_container,
+        reactome_diagram_container=reactome_diagram_container,
+    )
+    _last_context = ctx
+    return ctx
