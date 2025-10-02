@@ -7,7 +7,7 @@ from IPython.display import display, HTML
 from ipywidgets import Checkbox, Dropdown, GridBox, HBox, Layout, IntText, Text, VBox
 from jscatter import Scatter, glasbey_light, link, okabe_ito, Line
 from jscatter.widgets import Button
-from matplotlib.colors import to_hex, to_rgba
+from matplotlib.colors import to_hex
 from scipy.spatial import ConvexHull
 import scipy.stats as ss
 import requests
@@ -222,7 +222,8 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     ],
 ]
 
-    
+    # color_map = dict(zip(df[color_by].unique(), cycle(glasbey_light[1:])))
+    # color_map['Non-robust'] = (0.2, 0.2, 0.2, 1.0)
     # Categorical color maps
     categorical_cols = [col for col in available_metadata_cols if col in df.columns]
     categorical_color_maps = {
@@ -230,9 +231,15 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
         for col in categorical_cols
     }
 
-    # Pick default coloring 
-    color_by_name = "seurat_clusters" if "seurat_clusters" in df.columns else None
-
+    #choose initial coloring
+    if "seurat_clusters" in df.columns:
+        color_by = "seurat_clusters"
+        categories = df[color_by].astype(str).unique()
+        color_map = dict(zip(categories, cycle(glasbey_light[1:]))) #bright Glasbey colors
+    else:
+        color_by = None
+        color_map = None #fallback, will use continuous colormap when gene is chosen
+       
     scatter = Scatter(
         data = df,
         x = "x",
@@ -240,22 +247,17 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
         background_color = "#111111",
         axes = False,
         height = 720, 
-        color_by = color_by_name,
-        color_map = categorical_color_maps.get(color_by_name, "plasma"),
+        color_by = color_by,
+        color_map = color_map,
         tooltip = True, 
-        legend = True,
-        tooltip_properties = list(categorical_cols), # only columsn that actually exist
+        # legend = True,
+        # tooltip_properties = list(categorical_cols), # only columsn that actually exist
+        tooltip_properties = [
+            c for c in df.columns if c in available_metadata_cols
+        ],
     )
 
-    # If no metadata-based color, use a bright solid color for all points
-    if color_by_name is None:
-        # Ensure we're not using a colormap
-        scatter.color(by=None, map=None)
-        # Set a high-contrast RGBA (0..1); e.g., bright gold
-        scatter.widget.color = (0.98, 0.82, 0.20, 1.0)
-        
-    
-    # display(scatter.show())
+    scatter.widget.color_selected = "#00dadb"
     
     @dataclass
     class Selection:
@@ -286,8 +288,8 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
         def all_hulls(self) -> list[Line]:
             return [s.hull for s in self.selections]
 
-        def all_lassos(self) -> list[Line]:
-            return [s.lasso for s in self.selections]
+        # def all_lassos(self) -> list[Line]:
+        #     return [s.lasso for s in self.selections]
     
     
     @dataclass
@@ -299,29 +301,66 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     
     lasso = Lasso()
     selections = Selections()
-    
-    
     def update_annotations():
-        anns = []
-        #draw each saved subdivided rectangle
-        anns.extend([s.lasso for s in selections.selections])
-        #draw their hulls
-        anns.extend(selections.all_hulls())
-        #draw the in-progress lasso polygon if present
-        if lasso.polygon is not None:
-            anns.append(lasso.polygon)
-        scatter.annotations(anns)
-        
-        # lasso_polygon = [] if lasso.polygon is None else [lasso.polygon]
-        # scatter.annotations(selections.all_hulls() + [s.lasso for s in selections.selections] + lasso_polygon)
+        try:
+            lasso_polygon = [] if lasso.polygon is None else [lasso.polygon]
+            overlays = selections.all_hulls() + lasso_polygon
+            scatter.annotations(overlays)
+        except Exception as e:
+            with debug_out:
+                import traceback; traceback.print_exc()
     
+    # def update_annotations():
+    
+    #     with debug_out:
+    #         n_paths = sum(1 for s in selections.selections if getattr(s, "path", None) is not None)
+    #         print("[debug] subdiv colors:", [s.color for s in selections.selections[-selection_num_subdivisions.value:]])
+    #         print("[debug] selections:", len(selections.selections),
+    #               "| hulls:", len(selections.all_hulls()),
+    #               "| paths:", n_paths,
+    #               "| live:", lasso.polygon is not None)
+    
+    #         # --- detailed per-spine log (safe if no spines) ---
+    #         # Keep this short (first/last 1-2 points) so the console doesn’t explode.
+    #         import numpy as _np  # local import is fine; or use your global numpy as np
+    #         for s in selections.selections:
+    #             if getattr(s, "path", None) is not None:
+    #                 p = _np.asarray(s.path)
+    #                 if p.ndim == 2 and p.shape[0] >= 2:
+    #                     head = p[0].tolist()
+    #                     tail = p[-1].tolist()
+    #                     print(f"[debug]   {s.name}: len={len(p)}  head={head}  tail={tail}")
+    #                 else:
+    #                     print(f"[debug]   {s.name}: path present but malformed (shape={getattr(p,'shape',None)})")
+    #     # (your normal annotation drawing below)
+    #     lasso_polygon = [] if lasso.polygon is None else [lasso.polygon]
+    #     # spine_lines = [Line(_np.asarray(s.path), line_color="#ff00ff", line_width=2)
+    #     #                for s in selections.selections if getattr(s, "path", None) is not None]
+    #     scatter.annotations(selections.all_hulls() + lasso_polygon) #+lasso_spine
+            
+    #     # overlays = selections.all_hulls() #saved hulls
+    #     # with debug_out:
+    #     #     print("[debug] selections:", len(selections.selections),
+    #     #           "| hulls:", len(selections.all_hulls()),
+    #     #           "| live:", lasso.polygon is not None)
+            
+    #     # lasso_polygon = [] if lasso.polygon is None else [lasso.polygon]
+    #     # scatter.annotations(selections.all_hulls() + lasso_polygon)
+    #     # if lasso.polygon is not None:
+    #     #     overlays.append(lasso.polygon)
+    #     #     #if its a brush, draw the midline too
+    #     #     sp = compute_brush_spine(scatter.widget.lasso_selection_polygon)
+    #     #     if sp is not None:
+    #     #         overlays.append(Line(sp, line_color="#ff00ff", line_width=2))
+
+    #     # scatter.annotations(overlays)
     
     def lasso_selection_polygon_change_handler(change):
         if change["new"] is None:
             lasso.polygon = None
         else:
             points = change["new"].tolist()
-            points.append(points[0])
+            points.append(points[0]) #closes loop
             lasso.polygon = Line(points, line_color=scatter.widget.color_selected)
         update_annotations()
     
@@ -387,6 +426,16 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
             height="100%",
         ),
     )
+
+     # --- DEBUG PANEL: visible print area under the plot ---
+    import ipywidgets as widgets
+    debug_out = widgets.Output(layout=widgets.Layout(border='1px solid #444', max_height='140px', overflow_y='auto'))
+    display(debug_out)
+
+    def _draw_hulls_only_once():
+        # one-shot draw to prove hulls render
+        scatter.annotations(selections.all_hulls())
+    
     selections_predicates_wrapper.add_class(
         "jupyter-scatter-dimbridge-selections-predicates-wrapper"
     )
@@ -452,80 +501,77 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     
     
     def add_subdivided_selections():
-        try:        
-            lasso_polygon = scatter.widget.lasso_selection_polygon
-            if lasso_polygon is None or lasso_polygon.shape[0] < 4:
-                return
-                
-            lasso_points = lasso_polygon.shape[0]
-        
-            lasso_mid = int(lasso_polygon.shape[0] / 2)
-            lasso_spine = (lasso_polygon[:lasso_mid, :] + lasso_polygon[lasso_mid:, :]) / 2
-        
-            lasso_part_one = lasso_polygon[:lasso_mid, :]
-            lasso_part_two = lasso_polygon[lasso_mid:, :][::-1]
-        
-            n_split_points = selection_num_subdivisions.value + 1
-        
-            sub_lassos_part_one = split_line_equidistant(lasso_part_one, n_split_points)
-            sub_lassos_part_two = split_line_equidistant(lasso_part_two, n_split_points)
-        
-            base_name = selection_name.value
-            if len(base_name) == 0:
-                base_name = f"Selection {len(selections.selections) + 1}"
-        
-            color_map = continuous_color_maps[selection_num_subdivisions.value]
-        
-            for i, part_one in enumerate(sub_lassos_part_one):
-                polygon = np.vstack((part_one, sub_lassos_part_two[i][::-1]))
-                idxs = np.where(points_in_polygon(df[["x", "y"]].values, polygon))[0]
-                points = df.iloc[idxs][["x", "y"]].values
-                hull = ConvexHull(points)
-                hull_points = np.vstack((points[hull.vertices], points[hull.vertices[0]]))
-                color = color_map[i]
-                name = f"{base_name}.{i + 1}"
-                #close the polygon loop
-                lasso_polygon = polygon.tolist()
-                lasso_polygon.append(lasso_polygon[0])
-
-                lasso_polygon = [tuple(p) for p in lasso_polygon]
-    
-                selection = Selection(
-                    index=len(selections.selections) + 1,
-                    name=name,
-                    points=idxs,
-                    color=color,
-                    lasso=Line(lasso_polygon, line_color=to_rgba(color), line_width=2),
-                    hull=Line(hull_points, line_color=to_rgba(color), line_width=2),
-                    path=lasso_spine,
-                )
-                selections.selections.append(selection)
-                add_selection_element(selection)
+        # try:        
+        lasso_polygon = scatter.widget.lasso_selection_polygon
+        # if lasso_polygon is None or lasso_polygon.shape[0] < 4:
+        #     return
             
-            update_annotations()
-            print(f"[debug] subdivide added {len(sub_lassos_part_one)} rectanlges; total selections: {len(selections.selections)}")
-        except Exception as e:
-            import traceback; traceback.print_exc()
+        lasso_points = lasso_polygon.shape[0]
+    
+        lasso_mid = int(lasso_polygon.shape[0] / 2)
+        lasso_spine = (lasso_polygon[:lasso_mid, :] + lasso_polygon[lasso_mid:, :]) / 2
+    
+        lasso_part_one = lasso_polygon[:lasso_mid, :]
+        lasso_part_two = lasso_polygon[lasso_mid:, :][::-1]
+    
+        n_split_points = selection_num_subdivisions.value + 1
+    
+        sub_lassos_part_one = split_line_equidistant(lasso_part_one, n_split_points)
+        sub_lassos_part_two = split_line_equidistant(lasso_part_two, n_split_points)
+    
+        base_name = selection_name.value
+        if len(base_name) == 0:
+            base_name = f"Selection {len(selections.selections) + 1}"
+    
+        color_map = continuous_color_maps[selection_num_subdivisions.value]
+    
+        for i, part_one in enumerate(sub_lassos_part_one):
+            polygon = np.vstack((part_one, sub_lassos_part_two[i][::-1]))
+            idxs = np.where(points_in_polygon(df[["x", "y"]].values, polygon))[0]
+            points = df.iloc[idxs][["x", "y"]].values
+            hull = ConvexHull(points)
+            hull_points = np.vstack((points[hull.vertices], points[hull.vertices[0]]))
+            color = color_map[i]
+            name = f"{base_name}.{i + 1}"
+           
+            lasso_polygon = polygon.tolist()
+            lasso_polygon.append(lasso_polygon[0])
+
+            selection = Selection(
+                index=len(selections.selections) + 1,
+                name=name,
+                points=idxs,
+                color=color,
+                lasso=Line(lasso_polygon),
+                hull=Line(hull_points, line_color=color, line_width=2),
+                # path=lasso_spine,
+            )
+            selections.selections.append(selection)
+            add_selection_element(selection)
+
+        #     # Call this once after subdividing to verify:
+        # _draw_hulls_only_once()
+        
+        # except Exception as e:
+        #     import traceback; traceback.print_exc()
     
     
     def add_selection():
         idxs = scatter.selection()
         points = df.iloc[idxs][["x", "y"]].values
-        
         hull = ConvexHull(points)
         hull_points = np.vstack((points[hull.vertices], points[hull.vertices[0]]))
-
+        color = available_colors.pop(0)
+        
         # Build brush spine (midline of polygon) 
         spine = None
         if scatter.widget.lasso_type == "brush":
-            lp = np.asarray(scatter.widget.lasso_selection_polygon)
-            if lp.shape[0] >= 2:
-                if lp.shape[0] % 2 == 1:
-                    lp = lp[:-1]
-                mid = lp.shape[0] // 2
-                spine = (lp[:mid, :] + lp[mid:, :]) / 2
-        
-        color = available_colors.pop(0)
+            lasso_polygon = np.asarray(scatter.widget.lasso_selection_polygon)
+            if lasso_polygon.shape[0] >= 2:
+                if lasso_polygon.shape[0] % 2 == 1:
+                    lasso_polygon = lasso_polygon[:-1]
+                mid = lasso_polygon.shape[0] // 2
+                spine = (lasso_polygon[:mid, :] + lasso_polygon[mid:, :]) / 2
     
         name = selection_name.value
         if len(name) == 0:
@@ -540,8 +586,8 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
             points=idxs,
             color=color,
             lasso=Line(lasso_polygon),
-            hull=Line(hull_points, line_color=color, line_width=2),
-            path=spine,
+            hull=Line(hull_points, line_color=color, line_width=3),
+            # path=lasso_spine,
         )
         selections.selections.append(selection)
         add_selection_element(selection)
@@ -958,29 +1004,33 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     metadata_cols_lower = [c.lower() for c in available_metadata_cols]
     gene_options = [(g, g) for g in list(adata.var_names)[:max_gene_options]]
 
-    # Initial selection matches the initial scatter coloring
-    initial_color_value = color_by_name if color_by_name is not None else (gene_options[0][1] if gene_options else None)
+    dropdown_options = (
+        [("Seurat Clusters", "seurat_clusters")] if "seurat_clusters" in df.columns else []
+    ) + [(c.capitalize(), c) for c in available_metadata_cols if c not in ["x", "y", "seurat_clusters"]] \
+      + ([("— Genes —", None)] if gene_options else []) \
+      + gene_options
+    
+
     from ipywidgets import Dropdown
 
     color_by = Dropdown(
-        options=(
-            [("Seurat Clusters", "seurat_clusters")] if "seurat_clusters" in df.columns else []
-        )
-        + [(c.capitalize(), c) for c in metadata_cols_lower if c not in ["x", "y", "seurat_clusters"]]
-        + ([("— Genes —", None)] if gene_options else [])
-        + gene_options,
-        value=initial_color_value,
+        options= dropdown_options,
+        value=("seurat_clusters" if "seurat_clusters" in df.columns else (gene_options[0][1] if gene_options else None)),
+        # value=color_by if color_by is not None else (gene_options[0][1] if gene_options else None),
         description="Color By:",
     )
 
+    # If we started without clusters (no categorical map), use Fritz's magma for the initial gene view.
+    if color_map is None and color_by.value is not None:
+        scatter.color(by=color_by.value, map="magma")
+
     def color_by_change_handler(change):
-        selected_col = change["new"]
-        if selected_col is None:
-            return # ignore the divider
-        if selected_col in categorical_color_maps:
-            scatter.color(by = selected_col, map = categorical_color_maps[selected_col])
-        else:
-            scatter.color(by = selected_col, map = "plasma")
+        new = change["new"]
+        #categorical (clusters) -> bright glasbey map built at init
+        #continuous (genes/other numeric) -> magma 
+        cmap = color_map if (color_map is not None and new == "seurat_clusters") else "magma"
+        scatter.color(by=new, map=cmap)
+        
     color_by.observe(color_by_change_handler, names = ["value"])
  
     
@@ -1120,3 +1170,5 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     )
     _last_context = ctx
     return ctx
+
+
