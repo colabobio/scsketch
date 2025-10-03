@@ -176,7 +176,10 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
             metadata_df = adata.obs[available_metadata_cols].copy()
             # cast to str for categorical handling
             for col in available_metadata_cols:
-                metadata_df[col] = metadata_df[col].astype(str)
+                if pd.api.types.is_object_dtype(metadata_df[col]) or pd.api.types.is_categorical_dtype(metadata_df[col]):
+                    metadata_df[col] = metadata_df[col].astype(str)
+                #else leave numerics as numerics
+                
             print(f"Using metadata columns: {available_metadata_cols}")
         else:
             print("No requested metadata columns found, continuing without metadata.")
@@ -199,11 +202,58 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     df = pd.concat([umap_df, metadata_df, gene_exp_df], axis=1)
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # Colors for selections (used later)
+    # Determine categorical vs continuous from the metadata we actually have
+    meta_cols_present = [c for c in (metadata_cols or []) if c in df.columns]
+
+    categorical_cols = [
+        c for c in meta_cols_present
+        if df[c].dtype == "object" or df[c].nunique(dropna=False) <= 30
+    ]
+    # ensure string labels for categories
+    for c in categorical_cols:
+        df[c] = df[c].astype(str)
+
+    def _sorted_cats(x: pd.Series):
+        vals = pd.Index(x.unique().astype(str))
+        # numeric sort if all labels are integers; else lexicographic
+        if vals.str.fullmatch(r"\d+").all():
+            return sorted(vals, key=lambda s: int(s))
+        return sorted(vals, key=str)
+    
+    categorical_color_maps = {
+        c: dict(zip(_sorted_cats(df[c]), cycle(glasbey_light[1:])))
+        for c in categorical_cols
+    }
+
+    # Prefer a categorical default. Otherwise fall back to a continuous obs metric.
+    priority_cats = [c for c in ["cell_population", "seurat_clusters", "leiden", "clusters"] if c in categorical_cols]
+    if len(priority_cats) > 0:
+        color_by = priority_cats[0]
+        color_map = categorical_color_maps[color_by]
+    else:
+        fallback_cont = next((c for c in ["n_genes","total_counts","pct_counts_mt"] if c in df.columns), None)
+        color_by = fallback_cont
+        color_map = None
+    # --- 3) Now instantiate Scatter with this default ---
+    scatter = Scatter(
+        data=df,
+        x="x",
+        y="y",
+        background_color="#111111",
+        axes=False,
+        height=720,
+        color_by=color_by,
+        color_map=color_map,
+        tooltip=True,
+        legend=True,
+        tooltip_properties=[c for c in df.columns if c in meta_cols_present],
+    )
+
+    # Colors for selections 
     all_colors = okabe_ito.copy()
     available_colors = [color for color in all_colors]
 
-    #Continuous color ramps for subdivided selections (used later)
+    #Continuous color ramps for subdivided selections 
     continuous_color_maps = [
     ["#00dadb", "#da00db"],
     ["#00dadb", "#a994dc", "#da00db"],
@@ -221,41 +271,6 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
         "#00dadb","#57ccdb","#78bddc","#8faddc","#a19ddc","#b08bdc","#bd77dc","#c861db","#d144db","#da00db",
     ],
 ]
-
-    # color_map = dict(zip(df[color_by].unique(), cycle(glasbey_light[1:])))
-    # color_map['Non-robust'] = (0.2, 0.2, 0.2, 1.0)
-    # Categorical color maps
-    categorical_cols = [col for col in available_metadata_cols if col in df.columns]
-    categorical_color_maps = {
-        col:dict(zip(df[col].unique(), cycle(glasbey_light)))
-        for col in categorical_cols
-    }
-
-    #choose initial coloring
-    if "seurat_clusters" in df.columns:
-        color_by = "seurat_clusters"
-        categories = df[color_by].astype(str).unique()
-        color_map = dict(zip(categories, cycle(glasbey_light[1:]))) #bright Glasbey colors
-    else:
-        color_by = None
-        color_map = None #fallback, will use continuous colormap when gene is chosen
-       
-    scatter = Scatter(
-        data = df,
-        x = "x",
-        y = "y",
-        background_color = "#111111",
-        axes = False,
-        height = 720, 
-        color_by = color_by,
-        color_map = color_map,
-        tooltip = True, 
-        # legend = True,
-        # tooltip_properties = list(categorical_cols), # only columsn that actually exist
-        tooltip_properties = [
-            c for c in df.columns if c in available_metadata_cols
-        ],
-    )
 
     scatter.widget.color_selected = "#00dadb"
     
@@ -287,10 +302,6 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     
         def all_hulls(self) -> list[Line]:
             return [s.hull for s in self.selections]
-
-        # def all_lassos(self) -> list[Line]:
-        #     return [s.lasso for s in self.selections]
-    
     
     @dataclass
     class Lasso:
@@ -309,51 +320,6 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
         except Exception as e:
             with debug_out:
                 import traceback; traceback.print_exc()
-    
-    # def update_annotations():
-    
-    #     with debug_out:
-    #         n_paths = sum(1 for s in selections.selections if getattr(s, "path", None) is not None)
-    #         print("[debug] subdiv colors:", [s.color for s in selections.selections[-selection_num_subdivisions.value:]])
-    #         print("[debug] selections:", len(selections.selections),
-    #               "| hulls:", len(selections.all_hulls()),
-    #               "| paths:", n_paths,
-    #               "| live:", lasso.polygon is not None)
-    
-    #         # --- detailed per-spine log (safe if no spines) ---
-    #         # Keep this short (first/last 1-2 points) so the console doesn’t explode.
-    #         import numpy as _np  # local import is fine; or use your global numpy as np
-    #         for s in selections.selections:
-    #             if getattr(s, "path", None) is not None:
-    #                 p = _np.asarray(s.path)
-    #                 if p.ndim == 2 and p.shape[0] >= 2:
-    #                     head = p[0].tolist()
-    #                     tail = p[-1].tolist()
-    #                     print(f"[debug]   {s.name}: len={len(p)}  head={head}  tail={tail}")
-    #                 else:
-    #                     print(f"[debug]   {s.name}: path present but malformed (shape={getattr(p,'shape',None)})")
-    #     # (your normal annotation drawing below)
-    #     lasso_polygon = [] if lasso.polygon is None else [lasso.polygon]
-    #     # spine_lines = [Line(_np.asarray(s.path), line_color="#ff00ff", line_width=2)
-    #     #                for s in selections.selections if getattr(s, "path", None) is not None]
-    #     scatter.annotations(selections.all_hulls() + lasso_polygon) #+lasso_spine
-            
-    #     # overlays = selections.all_hulls() #saved hulls
-    #     # with debug_out:
-    #     #     print("[debug] selections:", len(selections.selections),
-    #     #           "| hulls:", len(selections.all_hulls()),
-    #     #           "| live:", lasso.polygon is not None)
-            
-    #     # lasso_polygon = [] if lasso.polygon is None else [lasso.polygon]
-    #     # scatter.annotations(selections.all_hulls() + lasso_polygon)
-    #     # if lasso.polygon is not None:
-    #     #     overlays.append(lasso.polygon)
-    #     #     #if its a brush, draw the midline too
-    #     #     sp = compute_brush_spine(scatter.widget.lasso_selection_polygon)
-    #     #     if sp is not None:
-    #     #         overlays.append(Line(sp, line_color="#ff00ff", line_width=2))
-
-    #     # scatter.annotations(overlays)
     
     def lasso_selection_polygon_change_handler(change):
         if change["new"] is None:
@@ -431,10 +397,6 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     import ipywidgets as widgets
     debug_out = widgets.Output(layout=widgets.Layout(border='1px solid #444', max_height='140px', overflow_y='auto'))
     display(debug_out)
-
-    def _draw_hulls_only_once():
-        # one-shot draw to prove hulls render
-        scatter.annotations(selections.all_hulls())
     
     selections_predicates_wrapper.add_class(
         "jupyter-scatter-dimbridge-selections-predicates-wrapper"
@@ -501,11 +463,8 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     
     
     def add_subdivided_selections():
-        # try:        
+       
         lasso_polygon = scatter.widget.lasso_selection_polygon
-        # if lasso_polygon is None or lasso_polygon.shape[0] < 4:
-        #     return
-            
         lasso_points = lasso_polygon.shape[0]
     
         lasso_mid = int(lasso_polygon.shape[0] / 2)
@@ -548,13 +507,6 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
             )
             selections.selections.append(selection)
             add_selection_element(selection)
-
-        #     # Call this once after subdividing to verify:
-        # _draw_hulls_only_once()
-        
-        # except Exception as e:
-        #     import traceback; traceback.print_exc()
-    
     
     def add_selection():
         idxs = scatter.selection()
@@ -869,17 +821,7 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
             
             # Compute correlations
             correlations = []
-            # for gene in selected_expression.columns:
-            #     r, p = ss.pearsonr(projections, selected_expression[gene])
-            #     correlations.append(
-            #         {
-            #             "attribute": gene,
-            #             "interval": (r, p),
-            #             "quality": abs(
-            #                 r
-            #             ),  # Use absolute correlation as a measure of quality
-            #         }
-            #     )
+            
             for j, gene in enumerate(genes):
                 if not bool(R_chunk[j]):
                     continue # hide non-significant genes
@@ -898,29 +840,6 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
                         "direction": selection.name, #keep which selection this came from
                     }
                 )
-            # batch_result_new = test_direction(adata.X, projections)
-            
-            # if batch_results == None:
-            #     p_values = batch_result_new["p_value"]
-            # else:
-            #     p_values = np.concatenate([batch_result["p_value"], batch_result_new["p_value"]])
-            #     batch_results = batch_result_new
-            
-            # online_result_new = lord_test(p_values, online_results, alpha=fdr_alpha)
-            # online_results = online_result_new
-
-            # for gene in selected_expression.columns:
-            #     r,p = ss.pearsonr(projections, selected_expression[gene])
-            #     correlations.append(
-            #         {
-            #             "attribute": gene, 
-            #             "interval": (r, p),
-            #             "quality": abs(
-            #                 r
-            #             ),
-            #             "onlineFDR": online_,
-            #         }
-            #     )
             
             results.append(correlations)
     
@@ -960,23 +879,6 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
             compute_predicates.disabled = False
             #compute_predicates.description = "Compute Directional Search" #optional restore
     
-
-        
-        # # Compute directional correlations
-        # directional_results = compute_directional_analysis(df, selections)
-    
-        # # Display in a table instead of histogram
-        # show_directional_results(directional_results)
-    
-        # compute_predicates.disabled = False
-        # from IPython.display import display
-        # import ipywidgets as widgets
-    
-        # debug_output = widgets.Output()
-        # display(debug_output)
-        # with debug_output:
-        #     print("Running directional analysis...")
-    
     
     compute_predicates.on_click(compute_predicates_handler)
     
@@ -1000,40 +902,56 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     
     scatter.widget.observe(lasso_type_change_handler, names=["lasso_type"])
 
-    # Dynamic Color By menu from available metadata + genes (limit to keep UI responsive)
-    metadata_cols_lower = [c.lower() for c in available_metadata_cols]
-    gene_options = [(g, g) for g in list(adata.var_names)[:max_gene_options]]
+    # --- Build dropdown options (categoricals + QC first, then genes) ---
 
-    dropdown_options = (
-        [("Seurat Clusters", "seurat_clusters")] if "seurat_clusters" in df.columns else []
-    ) + [(c.capitalize(), c) for c in available_metadata_cols if c not in ["x", "y", "seurat_clusters"]] \
-      + ([("— Genes —", None)] if gene_options else []) \
-      + gene_options
+    # 1) Prioritize categorical labels in a fixed order, then any other categoricals (alpha)
+    _cat_priority = ["cell_population", "seurat_clusters", "leiden", "clusters"]
+    cat_in_df = [c for c in _cat_priority if c in categorical_cols]
     
-
+    # any remaining categoricals (not in priority list), sorted by label
+    cat_rest = sorted([c for c in categorical_cols if c not in _cat_priority],
+                      key=lambda s: s.lower())
+    
+    cat_ordered = cat_in_df + cat_rest
+    cat_opts = [(c.replace("_", " ").title(), c) for c in cat_ordered]
+    
+    # 2) QC metrics in a sensible fixed order
+    _qc_order = [ "n_genes", "total_counts", "pct_counts_mt" ]
+    obs_opts = [(c.replace("_", " ").title(), c) for c in _qc_order if c in df.columns]
+    
+    # 3) Genes: case-insensitive alphabetical, limited by max_gene_options
+    _gene_sorted = sorted(list(adata.var_names), key=lambda s: s.lower())
+    gene_options = [(g, g) for g in _gene_sorted[:max_gene_options]]
+    
+    # 4) Final: categoricals + QC first, then a separator, then genes
+    dropdown_options = (
+        cat_opts
+        + obs_opts
+        # + ([("— Genes —", None)] if gene_options else [])
+        + gene_options
+    )
+    
     from ipywidgets import Dropdown
-
     color_by = Dropdown(
-        options= dropdown_options,
-        value=("seurat_clusters" if "seurat_clusters" in df.columns else (gene_options[0][1] if gene_options else None)),
-        # value=color_by if color_by is not None else (gene_options[0][1] if gene_options else None),
+        options=dropdown_options,
+        value=color_by,   # the default chosen earlier via priority_cats/fallback
         description="Color By:",
     )
-
-    # If we started without clusters (no categorical map), use Fritz's magma for the initial gene view.
-    if color_map is None and color_by.value is not None:
-        scatter.color(by=color_by.value, map="magma")
-
+    
     def color_by_change_handler(change):
         new = change["new"]
+        if new in categorical_color_maps:
+            scatter.color(by=new, map=categorical_color_maps[new])
+        else:
+            scatter.color(by=new, map="magma")
         #categorical (clusters) -> bright glasbey map built at init
         #continuous (genes/other numeric) -> magma 
-        cmap = color_map if (color_map is not None and new == "seurat_clusters") else "magma"
-        scatter.color(by=new, map=cmap)
+        # cmap = color_map if (color_map is not None and new == "seurat_clusters") else "magma"
+        # scatter.color(by=new, map=cmap)
         
+    # Switch palettes: categorical → Glasbey, otherwise → magma    
     color_by.observe(color_by_change_handler, names = ["value"])
  
-    
     # Main scatterplot and color selection
     plot_wrapper = VBox([scatter.show(), color_by])
     
