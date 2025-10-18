@@ -1,7 +1,6 @@
 """Main ScSketch widget for interactive single-cell embedding exploration."""
 
 import base64
-import numpy as np
 import pandas as pd
 import requests
 from itertools import cycle
@@ -13,7 +12,7 @@ from jscatter import Scatter, glasbey_light, okabe_ito, Line
 from jscatter.widgets import Button
 from matplotlib.colors import to_hex
 
-from .widgets import CorrelationTable, PathwayTable, InteractiveSVG, Label, Div
+from .widgets import CorrelationTable, PathwayTable, InteractiveSVG, Label
 from .utils import Selection, Selections, Lasso, create_selection, fetch_pathways
 from .analysis import compute_directional_analysis
 
@@ -64,7 +63,8 @@ class ScSketch:
 
         # Set up default color map
         color_map = self.categorical_color_maps.get(
-            color_by_default, dict(zip(self.df[color_by_default].unique(), cycle(glasbey_light[1:])))
+            color_by_default,
+            dict(zip(self.df[color_by_default].unique(), cycle(glasbey_light[1:]))),
         )
         if "Non-robust" in self.df[color_by_default].unique():
             color_map["Non-robust"] = (0.2, 0.2, 0.2, 1.0)
@@ -87,7 +87,7 @@ class ScSketch:
         )
 
         # Remove non-robust cell populations from histogram if present
-        if "Non-robust" in getattr(self.scatter, '_color_categories', {}):
+        if "Non-robust" in getattr(self.scatter, "_color_categories", {}):
             color_histogram = self.scatter.widget.color_histogram.copy()
             color_histogram[self.scatter._color_categories["Non-robust"]] = 0
             self.scatter.widget.color_histogram = color_histogram
@@ -103,7 +103,9 @@ class ScSketch:
     def _build_ui(self):
         """Build the complete UI layout."""
         # Selection controls
-        self.selection_name = Text(value="", placeholder="Select some points…", disabled=True)
+        self.selection_name = Text(
+            value="", placeholder="Select some points…", disabled=True
+        )
         self.selection_name.layout.width = "100%"
 
         self.selection_add = Button(
@@ -115,23 +117,35 @@ class ScSketch:
             rounded=["top-right", "bottom-right"],
         )
 
-        self.selection_subdivide = Checkbox(value=False, description="Subdivide", indent=False)
-        self.selection_num_subdivisions = IntText(value=5, min=2, max=10, step=1, description="Parts")
-        self.selection_subdivide_wrapper = HBox([self.selection_subdivide, self.selection_num_subdivisions])
+        self.selection_subdivide = Checkbox(
+            value=False, description="Subdivide", indent=False
+        )
+        self.selection_num_subdivisions = IntText(
+            value=5, min=2, max=10, step=1, description="Parts"
+        )
+        self.selection_subdivide_wrapper = HBox(
+            [self.selection_subdivide, self.selection_num_subdivisions]
+        )
 
         self.selections_elements = VBox(layout=Layout(grid_gap="2px"))
 
         # Directional analysis controls
         self.selections_predicates = VBox(
-            layout=Layout(top="4px", left="0px", right="0px", bottom="4px", grid_gap="4px")
+            layout=Layout(
+                top="4px", left="0px", right="0px", bottom="4px", grid_gap="4px"
+            )
         )
-        self.selections_predicates.add_class("jupyter-scatter-dimbridge-selections-predicates")
+        self.selections_predicates.add_class(
+            "jupyter-scatter-scsketch-selections-predicates"
+        )
 
         self.selections_predicates_wrapper = VBox(
             [self.selections_predicates],
             layout=Layout(height="100%"),
         )
-        self.selections_predicates_wrapper.add_class("jupyter-scatter-dimbridge-selections-predicates-wrapper")
+        self.selections_predicates_wrapper.add_class(
+            "jupyter-scatter-scsketch-selections-predicates-wrapper"
+        )
 
         self.compute_predicates = Button(
             description="Compute Directional Search",
@@ -147,10 +161,14 @@ class ScSketch:
         self.compute_predicates_wrapper = VBox([self.compute_predicates])
 
         # Color by dropdown
-        gene_columns = [col for col in self.df.columns if col not in ["x", "y"] + self.categorical_columns]
+        gene_columns = [
+            col
+            for col in self.df.columns
+            if col not in ["x", "y"] + self.categorical_columns
+        ]
         self.color_by = Dropdown(
-            options=[(col.capitalize(), col) for col in self.categorical_columns] +
-                    [(gene, gene) for gene in gene_columns],
+            options=[(col.capitalize(), col) for col in self.categorical_columns]
+            + [(gene, gene) for gene in gene_columns],
             value=self.categorical_columns[0] if self.categorical_columns else "x",
             description="Color By:",
         )
@@ -169,7 +187,9 @@ class ScSketch:
 
         self.reactome_diagram_container = VBox(
             [],
-            layout=Layout(overflow_y="auto", height="800px", padding="10px", display="none"),
+            layout=Layout(
+                overflow_y="auto", height="800px", padding="10px", display="none"
+            ),
         )
 
         self.interactive_svg_widget = InteractiveSVG()
@@ -202,9 +222,14 @@ class ScSketch:
         self.combined_gene_pathway_panel = GridBox(
             [
                 VBox([self.sidebar], layout=Layout(overflow_y="auto", height="800px")),
-                VBox([self.pathway_table_container], layout=Layout(overflow_y="auto", height="800px")),
+                VBox(
+                    [self.pathway_table_container],
+                    layout=Layout(overflow_y="auto", height="800px"),
+                ),
             ],
-            layout=Layout(grid_template_columns="3fr 2fr", grid_gap="5px", height="800px"),
+            layout=Layout(
+                grid_template_columns="3fr 2fr", grid_gap="5px", height="800px"
+            ),
         )
 
         # Plot wrapper
@@ -213,7 +238,9 @@ class ScSketch:
         # Top layout
         self.top_layout = GridBox(
             [self.plot_wrapper, self.combined_gene_pathway_panel],
-            layout=Layout(grid_template_columns="3fr 2fr", grid_gap="10px", height="800px"),
+            layout=Layout(
+                grid_template_columns="3fr 2fr", grid_gap="10px", height="800px"
+            ),
         )
 
         # Final layout
@@ -223,12 +250,13 @@ class ScSketch:
         )
 
         # Inject CSS
-        display(HTML("""
+        display(
+            HTML("""
         <style>
-        .jupyter-scatter-dimbridge-selections-predicates {
+        .jupyter-scatter-scsketch-selections-predicates {
             position: absolute !important;
         }
-        .jupyter-scatter-dimbridge-selections-predicates-wrapper {
+        .jupyter-scatter-scsketch-selections-predicates-wrapper {
             position: relative;
         }
         .jp-OutputArea-output, .jp-Cell-outputArea, .jp-Notebook {
@@ -236,21 +264,24 @@ class ScSketch:
             max-height: none !important;
         }
         </style>
-        """))
+        """)
+        )
 
     def _setup_handlers(self):
         """Set up all event handlers."""
         # Lasso selection polygon change handler
         self.scatter.widget.observe(
             self._lasso_selection_polygon_change_handler,
-            names=["lasso_selection_polygon"]
+            names=["lasso_selection_polygon"],
         )
 
         # Selection handler
         self.scatter.widget.observe(self._selection_handler, names=["selection"])
 
         # Lasso type change handler
-        self.scatter.widget.observe(self._lasso_type_change_handler, names=["lasso_type"])
+        self.scatter.widget.observe(
+            self._lasso_type_change_handler, names=["lasso_type"]
+        )
 
         # Color by change handler
         self.color_by.observe(self._color_by_change_handler, names=["value"])
@@ -273,7 +304,9 @@ class ScSketch:
         else:
             points = change["new"].tolist()
             points.append(points[0])
-            self.lasso.polygon = Line(points, line_color=self.scatter.widget.color_selected)
+            self.lasso.polygon = Line(
+                points, line_color=self.scatter.widget.color_selected
+            )
         self._update_annotations()
 
     def _selection_handler(self, change):
@@ -295,7 +328,10 @@ class ScSketch:
     def _lasso_type_change_handler(self, change):
         """Handle lasso type changes."""
         if change["new"] == "brush":
-            self.complete_add.children = (self.add_controls, self.selection_subdivide_wrapper)
+            self.complete_add.children = (
+                self.add_controls,
+                self.selection_subdivide_wrapper,
+            )
         else:
             self.complete_add.children = (self.add_controls,)
 
@@ -303,7 +339,9 @@ class ScSketch:
         """Handle color by dropdown changes."""
         selected_col = change["new"]
         if selected_col in self.categorical_color_maps:
-            self.scatter.color(by=selected_col, map=self.categorical_color_maps[selected_col])
+            self.scatter.color(
+                by=selected_col, map=self.categorical_color_maps[selected_col]
+            )
         else:
             self.scatter.color(by=selected_col, map="plasma")
 
@@ -361,13 +399,17 @@ class ScSketch:
             self.selections_elements.children = [
                 e for e in self.selections_elements.children if e != element
             ]
-            self.selections.selections = [s for s in self.selections.selections if s != selection]
+            self.selections.selections = [
+                s for s in self.selections.selections if s != selection
+            ]
             self._update_annotations()
             self.compute_predicates.disabled = len(self.selections.selections) == 0
 
         selection_remove.on_click(remove_handler)
 
-        self.selections_elements.children = self.selections_elements.children + (element,)
+        self.selections_elements.children = self.selections_elements.children + (
+            element,
+        )
 
     def _selection_add_handler(self, event):
         """Handle add selection button click."""
@@ -401,7 +443,7 @@ class ScSketch:
         directional_results = compute_directional_analysis(
             self.df,
             self.selections,
-            metadata_columns=["x", "y"] + self.categorical_columns
+            metadata_columns=["x", "y"] + self.categorical_columns,
         )
 
         # Display results
@@ -433,16 +475,20 @@ class ScSketch:
         all_results = []
         for i, result in enumerate(directional_results):
             for entry in result:
-                all_results.append({
-                    "Gene": entry["attribute"],
-                    "R": round(entry["interval"][0], 4),
-                    "p": round(entry["interval"][1], 6),
-                })
+                all_results.append(
+                    {
+                        "Gene": entry["attribute"],
+                        "R": round(entry["interval"][0], 4),
+                        "p": round(entry["interval"][1], 6),
+                    }
+                )
 
         # Convert to DataFrame and sort by absolute R-value
         results_df = pd.DataFrame(all_results)
         results_df = results_df.dropna(subset=["R", "p"])
-        results_df = results_df.sort_values(by="R", ascending=False).reset_index(drop=True)
+        results_df = results_df.sort_values(by="R", ascending=False).reset_index(
+            drop=True
+        )
 
         # Create interactive table
         gene_table_widget = CorrelationTable(data=results_df.to_dict(orient="records"))
@@ -455,18 +501,24 @@ class ScSketch:
             gene = change["new"]
             pathways = fetch_pathways(gene)
             pathway_table_widget.data = pathways
-            self.pathway_table_container.layout.display = "block" if pathways else "none"
+            self.pathway_table_container.layout.display = (
+                "block" if pathways else "none"
+            )
             self.reactome_diagram_container.layout.display = "none"
 
         def on_pathway_click(change):
             pathway_id = change["new"]
-            svg_url = f"https://reactome.org/ContentService/exporter/diagram/{pathway_id}.svg"
+            svg_url = (
+                f"https://reactome.org/ContentService/exporter/diagram/{pathway_id}.svg"
+            )
 
             try:
                 response = requests.get(svg_url)
                 response.raise_for_status()
                 svg_content = response.text
-                svg_base64 = base64.b64encode(svg_content.encode("utf-8")).decode("utf-8")
+                svg_base64 = base64.b64encode(svg_content.encode("utf-8")).decode(
+                    "utf-8"
+                )
 
                 self.interactive_svg_widget.svg_content = svg_base64
                 self.reactome_diagram_container.layout.display = "block"
