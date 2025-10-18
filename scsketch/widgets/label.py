@@ -1,4 +1,8 @@
-"""Label widget for selection display."""
+"""Label widget for selection display.
+
+Adapted from the dimbridge notebook in jupyter-scatter:
+https://github.com/flekschas/jupyter-scatter/blob/main/notebooks/dimbridge.ipynb
+"""
 
 from anywidget import AnyWidget
 from traitlets import Bool, Dict, Unicode

@@ -1,4 +1,9 @@
-"""Main ScSketch widget for interactive single-cell embedding exploration."""
+"""Main ScSketch widget for interactive single-cell embedding exploration.
+
+The UI composition and selection management patterns in this module are adapted from
+the dimbridge notebook in jupyter-scatter by Fritz Lekschas:
+https://github.com/flekschas/jupyter-scatter/blob/main/notebooks/dimbridge.ipynb
+"""
 
 import base64
 import pandas as pd
