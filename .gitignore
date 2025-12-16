@@ -12,3 +12,13 @@ data/*.pq
 data/*.h5
 src/scsketch/data/*.pq
 src/scsketch/dimbridge.ipynb
+
+# Data / large binaries
+data/
+*.h5ad
+*.rds
+
+# Ignore all notebooks except the main demo
+*.ipynb
+!demo.ipynb
+.ipynb_checkpoints/

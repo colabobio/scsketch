@@ -22,6 +22,8 @@ import ipywidgets as ipyw
 
 from matplotlib.path import Path
 
+import numpy as np
+
 def find_equidistant_vertices(vertices: np.ndarray, n_points: int) -> np.ndarray:
     seg = np.diff(vertices, axis=0)
     seg_len = np.linalg.norm(seg, axis=1)
@@ -68,7 +70,6 @@ def test_direction(X, projection):
     n = len(X)
     T = -np.abs(rs * np.sqrt(n - 2)) / np.sqrt(1 - (rs**2))
     return {"correlation": rs, "p_value": ss.t.cdf(T, df=n - 2) * 2}
-
 
 def lord_test(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005):
     """"
@@ -144,7 +145,7 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
         If None, metadata will be skipped.
     """
     
-    print("I am in view function")
+    # print("I am in view function")
     from IPython.display import display, HTML
     import numpy as np
     
@@ -180,7 +181,7 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
                     metadata_df[col] = metadata_df[col].astype(str)
                 #else leave numerics as numerics
                 
-            print(f"Using metadata columns: {available_metadata_cols}")
+            # print(f"Using metadata columns: {available_metadata_cols}")
         else:
             print("No requested metadata columns found, continuing without metadata.")
             available_metadata_cols = []
@@ -191,17 +192,33 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
         metadata_df = pd.DataFrame(index=adata.obs_names)
         print("No metadata passed, continuing with UMAP + gene expression only.")
 
-    # Gene Expression
-    gene_exp_df = pd.DataFrame(
-        adata.X.toarray() if hasattr(adata.X, "toarray") else adata.X,
-        columns = adata.var_names,
-        index = adata.obs_names,
-    )
+    # # Gene Expression
+    # gene_exp_df = pd.DataFrame(
+    #     adata.X.toarray() if hasattr(adata.X, "toarray") else adata.X,
+    #     columns = adata.var_names,
+    #     index = adata.obs_names,
+    # )
 
+    # # Combine
+    # df = pd.concat([umap_df, metadata_df, gene_exp_df], axis=1)
+    # df = df.loc[:, ~df.columns.duplicated()]
+
+    # --- Gene Expression (thin slice for UI; avoid full densify) ---
+    _gene_sorted = sorted(list(adata.var_names), key=lambda s: s.lower())
+    gene_subset = _gene_sorted[:max_gene_options]
+    
+    if len(gene_subset) > 0:
+        subX = adata[:, gene_subset].X
+        if hasattr(subX, "toarray"):
+            subX = subX.toarray()
+        gene_exp_df = pd.DataFrame(subX, columns=gene_subset, index=adata.obs_names)
+    else:
+        gene_exp_df = pd.DataFrame(index=adata.obs_names)
+    
     # Combine
     df = pd.concat([umap_df, metadata_df, gene_exp_df], axis=1)
     df = df.loc[:, ~df.columns.duplicated()]
-
+        
     # Determine categorical vs continuous from the metadata we actually have
     meta_cols_present = [c for c in (metadata_cols or []) if c in df.columns]
 
@@ -226,7 +243,10 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     }
 
     # Prefer a categorical default. Otherwise fall back to a continuous obs metric.
-    priority_cats = [c for c in ["cell_population", "seurat_clusters", "leiden", "clusters"] if c in categorical_cols]
+    # priority_cats = [c for c in ["cell_population", "seurat_clusters", "leiden", "clusters"] if c in categorical_cols]
+    priority_cats = [c for c in ["cell_type", "celltype.l1", "celltype.l2",
+                             "cell_population", "seurat_clusters", "leiden", "clusters"]
+                 if c in categorical_cols]
     if len(priority_cats) > 0:
         color_by = priority_cats[0]
         color_map = categorical_color_maps[color_by]
@@ -234,20 +254,19 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
         fallback_cont = next((c for c in ["n_genes","total_counts","pct_counts_mt"] if c in df.columns), None)
         color_by = fallback_cont
         color_map = None
-    # --- 3) Now instantiate Scatter with this default ---
+
     scatter = Scatter(
         data=df,
-        x="x",
-        y="y",
-        background_color="#111111",
-        axes=False,
+        x="x", y="y",
         height=720,
+        axes=False,
+        background_color="#111111",
         color_by=color_by,
         color_map=color_map,
         tooltip=True,
-        legend=True,
+        legend=False,               
         tooltip_properties=[c for c in df.columns if c in meta_cols_present],
-    )
+)
 
     # Colors for selections 
     all_colors = okabe_ito.copy()
@@ -325,7 +344,8 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
         if change["new"] is None:
             lasso.polygon = None
         else:
-            points = change["new"].tolist()
+            # points = change["new"].tolist()
+            points = np.asarray(change["new"], dtype=float).tolist()
             points.append(points[0]) #closes loop
             lasso.polygon = Line(points, line_color=scatter.widget.color_selected)
         update_annotations()
@@ -372,19 +392,10 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     }
     </style>
     """
-    
-    display(HTML(selections_predicates_css))
-    
+
     selections_predicates = VBox(
-        layout=Layout(
-            top="4px",
-            left="0px",
-            right="0px",
-            bottom="4px",
-            grid_gap="4px",
-        )
+    layout=Layout(overflow_y="auto", height="100%", grid_gap="6px")
     )
-    selections_predicates.add_class("jupyter-scatter-dimbridge-selections-predicates")
     
     selections_predicates_wrapper = VBox(
         [selections_predicates],
@@ -397,10 +408,10 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     import ipywidgets as widgets
     debug_out = widgets.Output(layout=widgets.Layout(border='1px solid #444', max_height='140px', overflow_y='auto'))
     display(debug_out)
-    
-    selections_predicates_wrapper.add_class(
-        "jupyter-scatter-dimbridge-selections-predicates-wrapper"
-    )
+
+    def log(*args):
+        with debug_out:
+            print(*args)
     
     compute_predicates = Button(
         description="Compute Directional Search",
@@ -464,7 +475,8 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     
     def add_subdivided_selections():
        
-        lasso_polygon = scatter.widget.lasso_selection_polygon
+        # lasso_polygon = scatter.widget.lasso_selection_polygon
+        lasso_polygon = np.asarray(scatter.widget.lasso_selection_polygon, dtype = float)
         lasso_points = lasso_polygon.shape[0]
     
         lasso_mid = int(lasso_polygon.shape[0] / 2)
@@ -493,8 +505,10 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
             color = color_map[i]
             name = f"{base_name}.{i + 1}"
            
-            lasso_polygon = polygon.tolist()
+            # lasso_polygon = polygon.tolist()
+            lasso_polygon = polygon.astype(float).tolist()
             lasso_polygon.append(lasso_polygon[0])
+            hull_points = hull_points.astype(float).tolist()
 
             selection = Selection(
                 index=len(selections.selections) + 1,
@@ -513,6 +527,7 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
         points = df.iloc[idxs][["x", "y"]].values
         hull = ConvexHull(points)
         hull_points = np.vstack((points[hull.vertices], points[hull.vertices[0]]))
+        hull_points_py = hull_points.astype(float).tolist()
         color = available_colors.pop(0)
         
         # Build brush spine (midline of polygon) 
@@ -528,8 +543,10 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
         name = selection_name.value
         if len(name) == 0:
             name = f"Selection {len(selections.selections) + 1}"
-    
-        lasso_polygon = scatter.widget.lasso_selection_polygon.tolist()
+
+        # lasso_polygon = scatter.widget.lasso_selection_polygon.tolist()
+        lasso_polygon = np.asarray(scatter.widget.lasso_selection_polygon, dtype = float)
+        lasso_polygon = lasso_polygon.tolist()
         lasso_polygon.append(lasso_polygon[0])
     
         selection = Selection(
@@ -538,7 +555,7 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
             points=idxs,
             color=color,
             lasso=Line(lasso_polygon),
-            hull=Line(hull_points, line_color=color, line_width=3),
+            hull=Line(hull_points_py, line_color=color, line_width=3),
             # path=lasso_spine,
         )
         selections.selections.append(selection)
@@ -627,18 +644,6 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
             return []
     
     
-    def fetch_pathway_image(pathway_id):
-        """Fetch Reactome pathway diagram image."""
-        url = f"https://reactome.org/ContentService/exporter/diagram/{pathway_id}.png"
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            return response.content
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching pathway image: {e}")
-            return None
-    
-    
     search_gene = widgets.Text()
     
     
@@ -687,42 +692,313 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
         pathway_table_container.layout.display = "none"
         reactome_diagram_container.layout.display = "none"
     
-        # link the selected gene in table to GenePathwayWidget
-        # handlers for interactive selections
-        def on_gene_click(change):
-            gene = change["new"]
-            print(f"[UI] gene clicked: {gene}")
-            pathways = fetch_pathways(gene)
-            pathway_table_widget.data = pathways
-            pathway_table_container.layout.display = "block" if pathways else "none"
-            reactome_diagram_container.layout.display = "none"
+        from .widgets import GeneProjectionPlot
+        from ipywidgets import VBox, Layout, HTML as _HTML
     
+        gene_proj_plot = GeneProjectionPlot()
+        pathway_msg = _HTML("")  # default title - empty by default, nothing visible
+#############################################################################################################
+        # --- put plot (top) + pathway table (bottom) into the right column ---
+        from ipywidgets import VBox, Layout, HTML as _HTML
+        
+        plot_box = VBox(
+            [gene_proj_plot],
+            layout=Layout(
+                flex="0 0 auto",
+                height="300px",
+                max_height="300px",
+                min_height="300px",
+                #border="1px solid #4aa3ff",
+                padding="0px",
+                overflow="visible",
+                align_self="stretch",
+                display="none",
+            ),
+        )
+        
+        pathway_box = VBox(
+            [pathway_msg, pathway_table_widget],
+            layout=Layout(
+                flex="1 1 auto",
+                # max_height="70%",
+                overflow="auto",             # scroll if long
+            ),
+        )
+        
+        # Make the container a 50/50 vertical split
+        pathway_table_container.children = [plot_box, pathway_box]
+        
+        pathway_table_container.layout = Layout(
+            display="flex",
+            flex_direction="column",
+            height="420px",
+            max_height="420px",
+            overflow="visible",
+
+        )
+
+#15Oct25,5:11pm##################################################################################################### 
+        def on_gene_click(change):
+            import traceback
+            gene = change["new"]
+            log(f"[UI] gene clicked: {gene!r}")
+        
+            try:
+                # --- pathways UI ---
+                pathways = fetch_pathways(gene)
+                pathway_table_widget.data = pathways
+                pathway_table_container.layout.display = "block"
+                pathway_msg.value = (
+                    f"<em>No Reactome pathways found for <b>{gene}</b>.</em>"
+                    if len(pathways) == 0
+                    else f"<b>Reactome pathways for {gene}</b>"
+                )
+                reactome_diagram_container.layout.display = "none"
+        
+                # --- context/selection guards ---
+                ctx = get_context()
+                if ctx is None:
+                    log("⚠️ No context found for projection plot")
+                    return
+                df = ctx.df
+                selections = ctx.selections
+        
+                if len(selections.selections) == 0:
+                    log("⚠️ No selections available for gene projection plot.")
+                    return
+        
+                sel = selections.selections[-1]
+                selected_indices = sel.points
+                log(f"[plot] selection name={sel.name!r} n={len(selected_indices)}")
+        
+                # --- build projection along selection (global normalized) ---
+                X = df[["x", "y"]].to_numpy(dtype=float)
+                Ux = (X[:, 0] - X[:, 0].min())
+                Uy = (X[:, 1] - X[:, 1].min())
+                
+                px = float(np.ptp(Ux)) or 1.0
+                py = float(np.ptp(Uy)) or 1.0
+                
+                U = np.c_[Ux/px, Uy/py]
+                U_sel = U[selected_indices]
+        
+                dirv = U_sel[-1] - U_sel[0]
+                L2 = float(np.dot(dirv, dirv))
+                if L2 <= 1e-15:
+                    pts = df.iloc[selected_indices][["x", "y"]].to_numpy(dtype=float)
+                    v = pts[-1] - pts[0]
+                    nv = np.linalg.norm(v)
+                    if nv <= 1e-15:
+                        log("⚠️ Degenerate selection; skipping plot.")
+                        return
+                    v = v / nv
+                    start = pts[0]
+                    proj = np.dot(pts - start, v)
+                    span = float(proj.max() - proj.min()) or 1.0
+                    proj = (proj - proj.min()) / span
+                else:
+                    celv = U_sel - U_sel[0]
+                    proj = (celv @ dirv) / (L2 + 1e-12)
+                    proj = np.clip(np.nan_to_num(proj, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0)
+        
+                # --- expression vector (fallback to adata if gene not in df slice) ---
+                if gene in df.columns:
+                    expr_all = pd.to_numeric(df[gene], errors="coerce").to_numpy(dtype=float)
+                    log(f"[plot] gene {gene!r} found in df columns")
+                else:
+                    sub = adata[:, [gene]].X
+                    if hasattr(sub, "toarray"):
+                        sub = sub.toarray()
+                    expr_all = np.asarray(sub).ravel().astype(float)
+                    log(f"[plot] gene {gene!r} NOT in df slice; loaded from adata (len={len(expr_all)})")
+        
+                expr = expr_all[selected_indices]
+                # sanitize numerics
+                if not np.isfinite(expr).all():
+                    finite = np.isfinite(expr)
+                    if finite.any():
+                        med = float(np.median(expr[finite]))
+                        expr = np.where(finite, expr, med)
+                    else:
+                        log(f"⚠️ Expression for {gene} has no finite values in the selection.")
+                        return
+        
+                # normalize safely
+                dx = proj.max() - proj.min()
+                dy = expr.max() - expr.min()
+                proj = np.linspace(0, 1, len(proj)) if dx <= 1e-12 else (proj - proj.min()) / (dx + 1e-12)
+                expr = np.zeros_like(expr)           if dy <= 1e-12 else (expr - expr.min()) / (dy + 1e-12)
+        
+                plot_data = [{"projection": float(p), "expression": float(e)} for p, e in zip(proj, expr)]
+                gene_proj_plot.data = plot_data
+                plot_box.layout.display = "block"  # show plot when gene is clicked
+                gene_proj_plot.gene = gene
+        
+                log(f"[plot] {gene}: n={len(plot_data)} pts "
+                    f"proj=[{proj.min():.3f},{proj.max():.3f}] expr=[{expr.min():.3f},{expr.max():.3f}]")
+                log(f"[plot] first5={plot_data[:5]}")
+        
+            except Exception:
+                # show full traceback in the debug panel so nothing is silent
+                with debug_out:
+                    traceback.print_exc()
+
+        
+        # def on_gene_click(change):
+        #     gene = change["new"]
+        #     log(f"[UI] gene clicked: {gene}")
+        
+        #     # Reactome pathways (unchanged)
+        #     pathways = fetch_pathways(gene)
+        #     pathway_table_widget.data = pathways
+        #     pathway_table_container.layout.display = "block"
+
+        #     #Set the message based on whether pathways were found for a gene
+        #     if len(pathways) == 0:
+        #         pathway_msg.value = f"<em>No Reactome pathways found for <b>{gene}</b>.</em>"
+        #     else:
+        #         pathway_msg.value = f"<b>Reactome pathways for {gene}</b>"
+            
+        #     reactome_diagram_container.layout.display = "none"
+        
+        #     # Compute & update "Expression vs Projection"
+        #     ctx = get_context()
+        #     if ctx is None:
+        #         log("⚠️ No context found for projection plot")
+        #         return
+        
+        #     df = ctx.df
+        #     selections = ctx.selections
+        #     if len(selections.selections) == 0:
+        #         log("⚠️ No selections available for gene projection plot.")
+        #         return
+        
+        #     # --- Selection indices (keep your original name) ---
+        #     sel = selections.selections[-1]
+        #     selected_indices = sel.points
+            
+        #     # --- Sciviewer-like projection on globally normalized UMAP ---
+        #     X = df[["x", "y"]].to_numpy(dtype=float)
+        #     # guard against zero ptp (flat axis)
+        #     ptp_x = X[:, 0].ptp()
+        #     ptp_y = X[:, 1].ptp()
+        #     Ux = (X[:, 0] - X[:, 0].min()) / (ptp_x if ptp_x > 0 else 1.0)
+        #     Uy = (X[:, 1] - X[:, 1].min()) / (ptp_y if ptp_y > 0 else 1.0)
+        #     U = np.c_[Ux, Uy]
+        #     U_sel = U[selected_indices]
+            
+        #     # spine projection in [0,1] with robust fallbacks
+        #     dirv = U_sel[-1] - U_sel[0]
+        #     L2 = float(np.dot(dirv, dirv))
+        #     if L2 <= 1e-15:
+        #         # Fallback: your previous local projection
+        #         points = df.iloc[selected_indices][["x", "y"]].to_numpy(dtype=float)
+        #         v = points[-1] - points[0]
+        #         nv = np.linalg.norm(v)
+        #         if nv <= 1e-15:
+        #             log("⚠️ Degenerate selection; skipping plot.")
+        #             return
+        #         v = v / nv
+        #         start = points[0]
+        #         proj = np.dot(points - start, v)
+        #         span = float(proj.max() - proj.min())
+        #         proj = (proj - float(proj.min())) / (span if span > 0 else 1.0)
+        #     else:
+        #         celv = U_sel - U_sel[0]
+        #         proj = (celv @ dirv) / (L2 + 1e-12)
+        #         # clamp to [0,1] but also replace non-finite if any
+        #         proj = np.clip(np.nan_to_num(proj, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0)
+            
+        #     # --- Expression: keep your original source but sanitize numerics ---
+        #     expr = df.iloc[selected_indices][gene].to_numpy()
+        #     # coerce to float; anything non-numeric -> NaN
+        #     expr = pd.to_numeric(expr, errors="coerce").to_numpy(dtype=float)
+        #     # replace NaN/Inf with 0 (or a tiny epsilon so they still render)
+        #     if not np.isfinite(expr).all():
+        #         finite = np.isfinite(expr)
+        #         if finite.any():
+        #             # replace bad values with median of finite values
+        #             med = float(np.median(expr[finite]))
+        #             expr = np.where(finite, expr, med)
+        #         else:
+        #             # nothing finite; bail with a clear message
+        #             log(f"⚠️ Expression for {gene} has no finite values in the selection.")
+        #             return
+            
+        #     # final joint finite mask (just in case)
+        #     m = np.isfinite(proj) & np.isfinite(expr)
+        #     if not m.any():
+        #         log("⚠️ No finite points to plot after sanitizing projection/expression.")
+        #         return
+        #     proj, expr = proj[m], expr[m]
+#15Oct25,5:11pm#####################################################################################################           
+
+            # Normalize safely so max != min (prevents flat or NaN scaling in JS)
+            dx = proj.max() - proj.min()
+            dy = expr.max() - expr.min()
+            
+            if dx <= 1e-12:
+                proj = np.linspace(0, 1, len(proj))
+            else:
+                proj = (proj - proj.min()) / (dx + 1e-12)
+            
+            if dy <= 1e-12:
+                expr = np.zeros_like(expr)
+            else:
+                expr = (expr - expr.min()) / (dy + 1e-12)
+            
+            log(f"[plot] {gene}: n={proj.size}, proj=({proj.min():.4f},{proj.max():.4f}), expr=({expr.min():.4f},{expr.max():.4f})")
+            
+            # Push to widget
+            plot_data = [{"projection": float(p), "expression": float(e)}
+                         for p, e in zip(proj, expr)]
+            gene_proj_plot.data = plot_data
+            gene_proj_plot.gene = gene
+        
+            # Show under the table
+            # selections_predicates.children = [gene_table_widget, gene_proj_plot]
+        
+            # (Optional) Debug line
+            log(f"[plot] {gene}: n={len(plot_data)}")
+            log(f"[plot-debug] sending {len(plot_data)} points to widget for {gene}")
+            log(f"[plot-debug] first 5 points: {plot_data[:5]}")
+            
         import base64
         import requests
         from ipywidgets import HTML
-    
-        # instantiate the widget only once, outside the click handler
+        from ipywidgets import Image
+
         interactive_svg_widget = InteractiveSVG()
-    
+        
         def on_pathway_click(change):
             pathway_id = change["new"]
-            svg_url = (
-                f"https://reactome.org/ContentService/exporter/diagram/{pathway_id}.svg"
-            )
-    
+            if not pathway_id:
+                return
+        
+            svg_url = f"https://reactome.org/ContentService/exporter/diagram/{pathway_id}.svg"
+        
             try:
                 response = requests.get(svg_url)
                 response.raise_for_status()
-                svg_content = response.text
-                svg_base64 = base64.b64encode(svg_content.encode("utf-8")).decode("utf-8")
-    
+        
+                svg_text = response.text.strip()
+                if len(svg_text) < 50:
+                    log("Empty SVG returned from Reactome")
+                    return
+
+                import base64
+                svg_base64 = base64.b64encode(svg_text.encode("utf-8")).decode("utf-8")
                 interactive_svg_widget.svg_content = svg_base64
-                reactome_diagram_container.layout.display = "block"
+                
                 reactome_diagram_container.children = [interactive_svg_widget]
-    
-            except requests.exceptions.RequestException as e:
-                print(f"Error fetching SVG diagram: {e}")
-    
+                reactome_diagram_container.layout.display = "block"
+        
+                log(f"[SVG] Loaded Reactome diagram for {pathway_id}")
+        
+            except Exception as e:
+                with debug_out:
+                    print("Error fetching SVG diagram:", e) 
+                    
         # connect handlers
         gene_table_widget.observe(on_gene_click, names=["selected_gene"])
         print("[UI] gene click observer attached")
@@ -733,14 +1009,7 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
         # Show in the UI
         selections_predicates.children = [gene_table_widget]
     
-        pathway_table_container.children = [
-            widgets.HTML("<b>Reactome Pathways</b>"),
-            pathway_table_widget,
-        ]
-    
-        # reactome_diagram_container.children = [pathway_image_widget]
-    
-        print("Showing directional results...")
+        log("Showing directional results...")
     
     
     #############################Part 1
@@ -967,7 +1236,16 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     )
     
     reactome_diagram_container = VBox(
-        [], layout=Layout(overflow_y="auto", height="400px", padding="10px", display="none")
+        [],
+        layout=Layout(
+            overflow="auto",
+            min_height="0px",
+            width="100%",
+            max_width="100%",
+            padding="10px",
+            display="none",
+            border="1px solid #ccc",
+        ),
     )
     
     # Sidebar with selection controls
@@ -991,20 +1269,20 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     # Pathway table (right panel)
     pathway_table_container.layout = Layout(
         overflow_y="auto",
-        height="800px",
+        max_height="400px",
         border="1px solid #ddd",
         padding="10px",
         display="none",  # initially hidden until gene selection
     )
     
     # Pathway diagram (bottom panel)
-    reactome_diagram_container.layout = Layout(
-        overflow_y="auto",
-        height="800px",
-        border="1px solid #ddd",
-        padding="10px",
-        display="none",  # initially hidden until pathway selection
-    )
+    # reactome_diagram_container.layout = Layout(
+    #     overflow_y="auto",
+    #     height="800px",
+    #     border="1px solid #ddd",
+    #     padding="10px",
+    #     display="none",  # initially hidden until pathway selection
+    # )
     
     # Combine top three panels
     top_layout = GridBox(
@@ -1044,10 +1322,12 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
             ),
         ],
         layout=Layout(
-            grid_template_columns="3fr 2fr",  # Gene table 60% and pathway table 40%
+            grid_template_columns="2fr 3fr",  # Gene table 60% and pathway table 40%
             grid_gap="5px",
             # overflow='hidden',
-            height="800px",
+            align_items="flex-start",
+            height="auto",
+            max_height="500px",
         ),
     )
     
@@ -1058,10 +1338,12 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
             combined_gene_pathway_panel,  # combined gene/pathway panel
         ],
         layout=Layout(
-            grid_template_columns="3fr 2fr",  # Scatterplot 60%, combined panel 40%
+            grid_template_columns="2.5fr 2.5fr",  # Scatterplot 60%, combined panel 40%
             grid_gap="10px",
             # overflow='hidden',
-            height="800px",
+            height="auto",
+            align_items="flex-start",
+            # max_height="550px",
         ),
     )
     
@@ -1069,9 +1351,15 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     final_layout_updated = VBox(
         [
             top_layout_updated,
-            reactome_diagram_container,
+            VBox([reactome_diagram_container], layout=Layout(width="100%")),
         ],
-        layout=Layout(grid_gap="10px", width="100%", height="auto"),
+        layout=Layout(
+            grid_gap="10px", 
+            width="100%",
+            # max_height="90vh", #cap to visible window height
+            overflow_y="auto", #scroll inside, not the whole notebook
+            align_items="flex-start",
+        ),
     )
     
     # Display the final layout
@@ -1088,5 +1376,3 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     )
     _last_context = ctx
     return ctx
-
-
