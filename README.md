@@ -6,13 +6,50 @@ It's currently provided as single notebook (scSketch.ipynb) with all the widget 
 
 ## Usage
 
-The scSketch.ipynb requires a number of Python packages to be installed in order to run. There are two ways to install the dependencies, either with juv or creating a conda environment, as explained below
+### Quick Start
 
-### Running the notebook with juv
+The easiest way to try scSketch is with the built-in demo (no installation required):
 
-To run the notebook, first install [juv](https://github.com/manzt/juv) and then call: 
+```bash
+uvx scsketch demo
+```
 
-```juv run scSketch.ipynb```
+This single command will automatically install scSketch and all dependencies, then launch the demo notebook.
+
+Alternatively, if you've cloned the repository, you can run the demo notebook directly with juv:
+
+```bash
+git clone https://github.com/colabobio/scsketch.git
+cd scsketch
+uvx juv run demo.ipynb
+```
+
+### Installing as a Package
+
+```bash
+# Install in development mode
+pip install -e .
+
+# Or install from PyPI (when published)
+pip install scsketch
+```
+
+Then use in any notebook:
+
+```python
+from scsketch import ScSketch
+
+sketch = ScSketch(data=df, categorical_columns=cols)
+sketch.show()
+```
+
+### Running the original notebook with juv
+
+To run the original inline notebook, first install [juv](https://github.com/manzt/juv) and then call:
+
+```bash
+juv run scSketch.ipynb
+```
 
 ### Creating a conda environment
 

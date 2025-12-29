@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scsketch"
+version = "0.1.0"
+description = "Interactive exploration of single-cell embeddings with directional analysis"
+readme = "README.md"
+authors = [
+    {name = "Askar Temirbek", email = "askar.temirbek@umassmed.edu"},
+    {name = "Fritz Lekschas", email = "code@lekschas.de"},
+    {name = "Kris Sankaran", email = "ksankaran@wisc.edu"},
+    {name = "Andres Colubri", email = "andres.colubri@umassmed.edu"}
+]
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+keywords = ["single-cell", "visualization", "jupyter", "widget", "bioinformatics"]
+requires-python = ">=3.12"
+dependencies = [
+    "anywidget>=0.9.0",
+    "jupyter-scatter-scsketch>=0.21.0",
+    "llvmlite>=0.44.0",
+    "numpy>=1.26.0",
+    "pandas>=2.0.0",
+    "pooch>=1.3.0",
+    "scanpy>=1.9.0",
+    "scipy>=1.11.0",
+    "ipywidgets>=8.0.0",
+    "matplotlib>=3.7.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "jupyterlab>=4.0.0",
+    "watchfiles>=0.20.0",
+]
+
+[project.scripts]
+scsketch = "scsketch._cli:main"
+
+[project.urls]
+Homepage = "https://github.com/colabobio/scsketch"
+Repository = "https://github.com/colabobio/scsketch"
+"Bug Tracker" = "https://github.com/colabobio/scsketch/issues"
+
+[tool.setuptools]
+packages = ["scsketch", "scsketch.widgets"]
