@@ -1,0 +1,20 @@
+name: scsketch
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - jupyterlab>=4
+  - ipywidgets>=8
+  - jupyterlab_widgets>=3
+  - numpy
+  - pandas
+  - matplotlib
+  - scanpy
+  - umap-learn>=0.5.7
+  - requests
+  - watchfiles
+  - pip:
+      - anywidget
+      - jupyter-scatter>=0.21.0
+      - -e .

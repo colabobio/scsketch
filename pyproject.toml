@@ -21,6 +21,9 @@ readme = "README.md"
 # `pip install -e ".[dev]"`
 # If you're using `uv` for development, feel free to remove this section.
 [project.optional-dependencies]
+lab = [
+    "jupyterlab>=4",
+]
 dev = [
     "watchfiles", 
     "jupyterlab",  
