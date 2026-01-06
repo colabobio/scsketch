@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import traitlets
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from itertools import cycle
 from IPython.display import display, HTML
 from ipywidgets import Checkbox, Dropdown, GridBox, HBox, Layout, IntText, Text, VBox
@@ -12,6 +12,15 @@ from scipy.spatial import ConvexHull
 import scipy.stats as ss
 import requests
 
+from .utils import (
+    Lasso,
+    Selection,
+    Selections,
+    find_equidistant_vertices,
+    points_in_polygon,
+    split_line_at_points,
+    split_line_equidistant,
+)
 from .widgets import (
     GenePathwayWidget, CorrelationTable, PathwayTable,
     InteractiveSVG, Label, Div
@@ -20,35 +29,6 @@ from .widgets import (
 from typing import Optional 
 import ipywidgets as ipyw
 
-from matplotlib.path import Path
-
-import numpy as np
-
-def find_equidistant_vertices(vertices: np.ndarray, n_points: int) -> np.ndarray:
-    seg = np.diff(vertices, axis=0)
-    seg_len = np.linalg.norm(seg, axis=1)
-    cum = np.concatenate(([0.0], np.cumsum(seg_len)))
-    total = cum[-1]
-    targets = np.linspace(0.0, total, n_points)
-    out = np.zeros((n_points, 2))
-    for i, t in enumerate(targets):
-        j = max(0, min(np.searchsorted(cum, t, side="right")-1, len(seg)-1))
-        alpha = (t - cum[j]) / (seg_len[j] if seg_len[j] else 1.0)
-        out[i] = vertices[j] + alpha * seg[j]
-    return out
-
-def split_line_at_points(vertices: np.ndarray, split_points: np.ndarray) -> list[np.ndarray]:
-    if len(split_points) < 2:
-        return []
-    return [np.vstack([split_points[i], split_points[i+1]]) for i in range(len(split_points)-1)]
-
-def split_line_equidistant(vertices: np.ndarray, n_points: int) -> list[np.ndarray]:
-    return split_line_at_points(vertices, find_equidistant_vertices(vertices, n_points))
-
-def points_in_polygon(points: np.ndarray, polygon: np.ndarray) -> np.ndarray:
-    return Path(polygon).contains_points(points)
-
-# Inside view(), where Selection is defined
 @dataclass
 class Context:
     df: pd.DataFrame
@@ -63,7 +43,7 @@ _last_context: Optional[Context] = None
 def get_context() -> Optional[Context]:
     """Return the most recent scSketch view context (or None if not created yet)."""
     return _last_context
-###############################################################################################################################
+
 def test_direction(X, projection):
     rs = np.corrcoef(projection, X, rowvar=False)[0, 1:]
 
@@ -129,10 +109,9 @@ def lord_test(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005):
 
     return {"p_value": pval, "alpha_i": alphai, "R": R, "tau": tau}
 
-###############################################################################################################################
 
 #Widget Composition - Finally, we're going to instantiate the scatter plot and all the other widgets and link them using their traits. The output is the UI you've been waiting for :)
-def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
+def _legacy_view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     """
     Visualize an AnnData object in scSketch.
 
@@ -160,7 +139,7 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     from numpy import histogram, isnan
     from matplotlib.colors import to_hex
     from scipy.spatial import ConvexHull
-####################################################################################################################################
+
     import pandas as pd
     
     # UMAP coordinates
@@ -697,7 +676,7 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     
         gene_proj_plot = GeneProjectionPlot()
         pathway_msg = _HTML("")  # default title - empty by default, nothing visible
-#############################################################################################################
+
         # --- put plot (top) + pathway table (bottom) into the right column ---
         from ipywidgets import VBox, Layout, HTML as _HTML
         
@@ -737,7 +716,6 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
 
         )
 
-#15Oct25,5:11pm##################################################################################################### 
         def on_gene_click(change):
             import traceback
             gene = change["new"]
@@ -758,13 +736,13 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
                 # --- context/selection guards ---
                 ctx = get_context()
                 if ctx is None:
-                    log("⚠️ No context found for projection plot")
+                    log("No context found for projection plot")
                     return
                 df = ctx.df
                 selections = ctx.selections
         
                 if len(selections.selections) == 0:
-                    log("⚠️ No selections available for gene projection plot.")
+                    log("No selections available for gene projection plot.")
                     return
         
                 sel = selections.selections[-1]
@@ -789,7 +767,7 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
                     v = pts[-1] - pts[0]
                     nv = np.linalg.norm(v)
                     if nv <= 1e-15:
-                        log("⚠️ Degenerate selection; skipping plot.")
+                        log("Degenerate selection; skipping plot.")
                         return
                     v = v / nv
                     start = pts[0]
@@ -820,7 +798,7 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
                         med = float(np.median(expr[finite]))
                         expr = np.where(finite, expr, med)
                     else:
-                        log(f"⚠️ Expression for {gene} has no finite values in the selection.")
+                        log(f"Expression for {gene} has no finite values in the selection.")
                         return
         
                 # normalize safely
@@ -841,97 +819,7 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
             except Exception:
                 # show full traceback in the debug panel so nothing is silent
                 with debug_out:
-                    traceback.print_exc()
-
-        
-        # def on_gene_click(change):
-        #     gene = change["new"]
-        #     log(f"[UI] gene clicked: {gene}")
-        
-        #     # Reactome pathways (unchanged)
-        #     pathways = fetch_pathways(gene)
-        #     pathway_table_widget.data = pathways
-        #     pathway_table_container.layout.display = "block"
-
-        #     #Set the message based on whether pathways were found for a gene
-        #     if len(pathways) == 0:
-        #         pathway_msg.value = f"<em>No Reactome pathways found for <b>{gene}</b>.</em>"
-        #     else:
-        #         pathway_msg.value = f"<b>Reactome pathways for {gene}</b>"
-            
-        #     reactome_diagram_container.layout.display = "none"
-        
-        #     # Compute & update "Expression vs Projection"
-        #     ctx = get_context()
-        #     if ctx is None:
-        #         log("⚠️ No context found for projection plot")
-        #         return
-        
-        #     df = ctx.df
-        #     selections = ctx.selections
-        #     if len(selections.selections) == 0:
-        #         log("⚠️ No selections available for gene projection plot.")
-        #         return
-        
-        #     # --- Selection indices (keep your original name) ---
-        #     sel = selections.selections[-1]
-        #     selected_indices = sel.points
-            
-        #     # --- Sciviewer-like projection on globally normalized UMAP ---
-        #     X = df[["x", "y"]].to_numpy(dtype=float)
-        #     # guard against zero ptp (flat axis)
-        #     ptp_x = X[:, 0].ptp()
-        #     ptp_y = X[:, 1].ptp()
-        #     Ux = (X[:, 0] - X[:, 0].min()) / (ptp_x if ptp_x > 0 else 1.0)
-        #     Uy = (X[:, 1] - X[:, 1].min()) / (ptp_y if ptp_y > 0 else 1.0)
-        #     U = np.c_[Ux, Uy]
-        #     U_sel = U[selected_indices]
-            
-        #     # spine projection in [0,1] with robust fallbacks
-        #     dirv = U_sel[-1] - U_sel[0]
-        #     L2 = float(np.dot(dirv, dirv))
-        #     if L2 <= 1e-15:
-        #         # Fallback: your previous local projection
-        #         points = df.iloc[selected_indices][["x", "y"]].to_numpy(dtype=float)
-        #         v = points[-1] - points[0]
-        #         nv = np.linalg.norm(v)
-        #         if nv <= 1e-15:
-        #             log("⚠️ Degenerate selection; skipping plot.")
-        #             return
-        #         v = v / nv
-        #         start = points[0]
-        #         proj = np.dot(points - start, v)
-        #         span = float(proj.max() - proj.min())
-        #         proj = (proj - float(proj.min())) / (span if span > 0 else 1.0)
-        #     else:
-        #         celv = U_sel - U_sel[0]
-        #         proj = (celv @ dirv) / (L2 + 1e-12)
-        #         # clamp to [0,1] but also replace non-finite if any
-        #         proj = np.clip(np.nan_to_num(proj, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0)
-            
-        #     # --- Expression: keep your original source but sanitize numerics ---
-        #     expr = df.iloc[selected_indices][gene].to_numpy()
-        #     # coerce to float; anything non-numeric -> NaN
-        #     expr = pd.to_numeric(expr, errors="coerce").to_numpy(dtype=float)
-        #     # replace NaN/Inf with 0 (or a tiny epsilon so they still render)
-        #     if not np.isfinite(expr).all():
-        #         finite = np.isfinite(expr)
-        #         if finite.any():
-        #             # replace bad values with median of finite values
-        #             med = float(np.median(expr[finite]))
-        #             expr = np.where(finite, expr, med)
-        #         else:
-        #             # nothing finite; bail with a clear message
-        #             log(f"⚠️ Expression for {gene} has no finite values in the selection.")
-        #             return
-            
-        #     # final joint finite mask (just in case)
-        #     m = np.isfinite(proj) & np.isfinite(expr)
-        #     if not m.any():
-        #         log("⚠️ No finite points to plot after sanitizing projection/expression.")
-        #         return
-        #     proj, expr = proj[m], expr[m]
-#15Oct25,5:11pm#####################################################################################################           
+                    traceback.print_exc()        
 
             # Normalize safely so max != min (prevents flat or NaN scaling in JS)
             dx = proj.max() - proj.min()
@@ -1376,3 +1264,1002 @@ def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
     )
     _last_context = ctx
     return ctx
+
+
+class _ScSketchDirectionalView:
+    """
+    Object-oriented wrapper around the existing scSketch `view()` logic.
+
+    This refactor is intended to keep widget behavior identical while organizing the code
+    into: dataframe construction, UI construction, and handler wiring, with state stored on
+    the instance.
+    """
+
+    def __init__(self, adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
+        self.adata = adata
+        self.metadata_cols = metadata_cols
+        self.max_gene_options = max_gene_options
+        self.fdr_alpha = fdr_alpha
+
+        self.df: pd.DataFrame | None = None
+        self.available_metadata_cols: list[str] = []
+        self.meta_cols_present: list[str] = []
+        self.categorical_cols: list[str] = []
+        self.categorical_color_maps: dict[str, dict] = {}
+        self.color_by_default: str | None = None
+        self.color_map_default = None
+
+        self.scatter: Scatter | None = None
+        self.lasso = Lasso()
+        self.selections = Selections()
+
+        self.available_colors = list(okabe_ito.copy())
+        self.continuous_color_maps = [
+            ["#00dadb", "#da00db"],
+            ["#00dadb", "#a994dc", "#da00db"],
+            ["#00dadb", "#8faddc", "#bd77dc", "#da00db"],
+            ["#00dadb", "#7eb9dc", "#a994dc", "#c567dc", "#da00db"],
+            ["#00dadb", "#72c0db", "#9aa3dc", "#b583dc", "#ca5cdb", "#da00db"],
+            ["#00dadb", "#69c4db", "#8faddc", "#a994dc", "#bd77dc", "#cd54db", "#da00db"],
+            [
+                "#00dadb",
+                "#62c7db",
+                "#86b4dc",
+                "#9e9fdc",
+                "#b288dc",
+                "#c16edc",
+                "#cf4ddb",
+                "#da00db",
+            ],
+            [
+                "#00dadb",
+                "#5ccadb",
+                "#7eb9dc",
+                "#96a7dc",
+                "#a994dc",
+                "#b87fdc",
+                "#c567dc",
+                "#d048db",
+                "#da00db",
+            ],
+            [
+                "#00dadb",
+                "#57ccdb",
+                "#78bddc",
+                "#8faddc",
+                "#a19ddc",
+                "#b08bdc",
+                "#bd77dc",
+                "#c861db",
+                "#d144db",
+                "#da00db",
+            ],
+        ]
+
+        self.batch_results = None
+        self.online_results = None
+
+        self.debug_out: ipyw.Output | None = None
+
+        self.selection_name: Text | None = None
+        self.selection_add: Button | None = None
+        self.selection_subdivide: Checkbox | None = None
+        self.selection_num_subdivisions: IntText | None = None
+        self.selection_subdivide_wrapper: HBox | None = None
+        self.selections_elements: VBox | None = None
+        self.selections_predicates: VBox | None = None
+        self.selections_predicates_wrapper: VBox | None = None
+        self.compute_predicates: Button | None = None
+        self.compute_predicates_between_selections: Checkbox | None = None
+        self.compute_predicates_wrapper: VBox | None = None
+
+        self.add_controls: GridBox | None = None
+        self.complete_add: VBox | None = None
+
+        self.color_by: Dropdown | None = None
+        self.plot_wrapper: VBox | None = None
+        self.sidebar: GridBox | None = None
+
+        self.pathway_table_container: VBox | None = None
+        self.reactome_diagram_container: VBox | None = None
+
+        self.ui: VBox | None = None
+
+        self._build_df()
+        self._build_scatter()
+        self._build_ui()
+        self._build_layout()
+        self._setup_handlers()
+
+    def _log(self, *args):
+        if self.debug_out is None:
+            return
+        with self.debug_out:
+            print(*args)
+
+    def _build_df(self):
+        adata = self.adata
+
+        umap_df = pd.DataFrame(
+            adata.obsm["X_umap"],
+            columns=["x", "y"],
+            index=adata.obs_names,
+        )
+
+        if self.metadata_cols is not None:
+            available_metadata_cols = [
+                col for col in self.metadata_cols if col in adata.obs.columns
+            ]
+            if len(available_metadata_cols) > 0:
+                metadata_df = adata.obs[available_metadata_cols].copy()
+                for col in available_metadata_cols:
+                    if pd.api.types.is_object_dtype(metadata_df[col]) or pd.api.types.is_categorical_dtype(metadata_df[col]):
+                        metadata_df[col] = metadata_df[col].astype(str)
+            else:
+                print("No requested metadata columns found, continuing without metadata.")
+                available_metadata_cols = []
+                metadata_df = pd.DataFrame(index=adata.obs_names)
+        else:
+            available_metadata_cols = []
+            metadata_df = pd.DataFrame(index=adata.obs_names)
+            print("No metadata passed, continuing with UMAP + gene expression only.")
+
+        _gene_sorted = sorted(list(adata.var_names), key=lambda s: s.lower())
+        gene_subset = _gene_sorted[: self.max_gene_options]
+        if len(gene_subset) > 0:
+            subX = adata[:, gene_subset].X
+            if hasattr(subX, "toarray"):
+                subX = subX.toarray()
+            gene_exp_df = pd.DataFrame(subX, columns=gene_subset, index=adata.obs_names)
+        else:
+            gene_exp_df = pd.DataFrame(index=adata.obs_names)
+
+        df = pd.concat([umap_df, metadata_df, gene_exp_df], axis=1)
+        df = df.loc[:, ~df.columns.duplicated()]
+
+        meta_cols_present = [c for c in (self.metadata_cols or []) if c in df.columns]
+        categorical_cols = [
+            c
+            for c in meta_cols_present
+            if df[c].dtype == "object" or df[c].nunique(dropna=False) <= 30
+        ]
+        for c in categorical_cols:
+            df[c] = df[c].astype(str)
+
+        def _sorted_cats(x: pd.Series):
+            vals = pd.Index(x.unique().astype(str))
+            if vals.str.fullmatch(r"\d+").all():
+                return sorted(vals, key=lambda s: int(s))
+            return sorted(vals, key=str)
+
+        categorical_color_maps = {
+            c: dict(zip(_sorted_cats(df[c]), cycle(glasbey_light[1:])))
+            for c in categorical_cols
+        }
+
+        priority_cats = [
+            c
+            for c in [
+                "cell_type",
+                "celltype.l1",
+                "celltype.l2",
+                "cell_population",
+                "seurat_clusters",
+                "leiden",
+                "clusters",
+            ]
+            if c in categorical_cols
+        ]
+        if len(priority_cats) > 0:
+            color_by_default = priority_cats[0]
+            color_map_default = categorical_color_maps[color_by_default]
+        else:
+            fallback_cont = next(
+                (c for c in ["n_genes", "total_counts", "pct_counts_mt"] if c in df.columns),
+                None,
+            )
+            color_by_default = fallback_cont
+            color_map_default = None
+
+        self.df = df
+        self.available_metadata_cols = available_metadata_cols
+        self.meta_cols_present = meta_cols_present
+        self.categorical_cols = categorical_cols
+        self.categorical_color_maps = categorical_color_maps
+        self.color_by_default = color_by_default
+        self.color_map_default = color_map_default
+
+    def _build_scatter(self):
+        df = self.df
+        if df is None:
+            raise RuntimeError("df was not built")
+
+        scatter = Scatter(
+            data=df,
+            x="x",
+            y="y",
+            height=720,
+            axes=False,
+            background_color="#111111",
+            color_by=self.color_by_default,
+            color_map=self.color_map_default,
+            tooltip=True,
+            legend=False,
+            tooltip_properties=[c for c in df.columns if c in self.meta_cols_present],
+        )
+        scatter.widget.color_selected = "#00dadb"
+        self.scatter = scatter
+
+    def _build_ui(self):
+        self.debug_out = ipyw.Output(
+            layout=ipyw.Layout(border="1px solid #444", max_height="140px", overflow_y="auto")
+        )
+        display(self.debug_out)
+
+        self.selection_name = Text(value="", placeholder="Select some points…", disabled=True)
+        self.selection_name.layout.width = "100%"
+
+        self.selection_add = Button(
+            description="",
+            tooltip="Save Selection",
+            disabled=True,
+            icon="plus",
+            width=36,
+            rounded=["top-right", "bottom-right"],
+        )
+
+        self.selection_subdivide = Checkbox(value=False, description="Subdivide", indent=False)
+        self.selection_num_subdivisions = IntText(value=5, min=2, max=10, step=1, description="Parts")
+        self.selection_subdivide_wrapper = HBox([self.selection_subdivide, self.selection_num_subdivisions])
+
+        self.selections_elements = VBox(layout=Layout(grid_gap="2px"))
+
+        self.selections_predicates = VBox(layout=Layout(overflow_y="auto", height="100%", grid_gap="6px"))
+        self.selections_predicates_wrapper = VBox([self.selections_predicates], layout=Layout(height="100%"))
+
+        self.compute_predicates = Button(
+            description="Compute Directional Search",
+            style="primary",
+            disabled=True,
+            full_width=True,
+        )
+        self.compute_predicates_between_selections = Checkbox(
+            value=False, description="Compare Between Selections", indent=False
+        )
+        self.compute_predicates_wrapper = VBox([self.compute_predicates])
+
+        self.add_controls = GridBox(
+            [self.selection_name, self.selection_add],
+            layout=Layout(grid_template_columns="1fr 40px"),
+        )
+        self.complete_add = VBox([self.add_controls], layout=Layout(grid_gap="4px"))
+
+    def _build_layout(self):
+        if self.df is None or self.scatter is None:
+            raise RuntimeError("View not initialized")
+
+        df = self.df
+        scatter = self.scatter
+
+        _cat_priority = ["cell_population", "seurat_clusters", "leiden", "clusters"]
+        cat_in_df = [c for c in _cat_priority if c in self.categorical_cols]
+        cat_rest = sorted([c for c in self.categorical_cols if c not in _cat_priority], key=lambda s: s.lower())
+        cat_ordered = cat_in_df + cat_rest
+        cat_opts = [(c.replace("_", " ").title(), c) for c in cat_ordered]
+
+        _qc_order = ["n_genes", "total_counts", "pct_counts_mt"]
+        obs_opts = [(c.replace("_", " ").title(), c) for c in _qc_order if c in df.columns]
+
+        _gene_sorted = sorted(list(self.adata.var_names), key=lambda s: s.lower())
+        gene_options = [(g, g) for g in _gene_sorted[: self.max_gene_options]]
+        dropdown_options = cat_opts + obs_opts + gene_options
+
+        self.color_by = Dropdown(
+            options=dropdown_options,
+            value=self.color_by_default,
+            description="Color By:",
+        )
+        self.plot_wrapper = VBox([scatter.show(), self.color_by])
+
+        self.pathway_table_container = VBox(
+            [],
+            layout=Layout(
+                overflow_y="auto",
+                height="400px",
+                border="1px solid #ddd",
+                padding="10px",
+                display="none",
+            ),
+        )
+
+        self.reactome_diagram_container = VBox(
+            [],
+            layout=Layout(
+                overflow="auto",
+                min_height="0px",
+                width="100%",
+                max_width="100%",
+                padding="10px",
+                display="none",
+                border="1px solid #ccc",
+            ),
+        )
+
+        self.sidebar = GridBox(
+            [
+                self.complete_add,
+                self.selections_elements,
+                self.selections_predicates_wrapper,
+                self.compute_predicates_wrapper,
+            ],
+            layout=Layout(
+                grid_template_rows="min-content max-content 1fr min-content",
+                overflow_y="auto",
+                height="800px",
+                grid_gap="4px",
+            ),
+        )
+
+        self.pathway_table_container.layout = Layout(
+            overflow_y="auto",
+            max_height="400px",
+            border="1px solid #ddd",
+            padding="10px",
+            display="none",
+        )
+
+        top_layout = GridBox(
+            [self.plot_wrapper, self.sidebar, self.pathway_table_container],
+            layout=Layout(grid_template_columns="2fr 1fr 1fr", grid_gap="10px", height="auto"),
+        )
+
+        display(
+            HTML(
+                """
+<style>
+.jp-OutputArea-output, .jp-Cell-outputArea, .jp-Notebook {
+    overflow: auto !important;
+    max-height: none !important;
+}
+</style>
+"""
+            )
+        )
+
+        combined_gene_pathway_panel = GridBox(
+            [
+                VBox([self.sidebar], layout=Layout(overflow_y="auto", height="800px")),
+                VBox([self.pathway_table_container], layout=Layout(overflow_y="auto", height="800px")),
+            ],
+            layout=Layout(
+                grid_template_columns="2fr 3fr",
+                grid_gap="5px",
+                align_items="flex-start",
+                height="auto",
+                max_height="500px",
+            ),
+        )
+
+        top_layout_updated = GridBox(
+            [self.plot_wrapper, combined_gene_pathway_panel],
+            layout=Layout(
+                grid_template_columns="2.5fr 2.5fr",
+                grid_gap="10px",
+                height="auto",
+                align_items="flex-start",
+            ),
+        )
+
+        self.ui = VBox(
+            [top_layout_updated, VBox([self.reactome_diagram_container], layout=Layout(width="100%"))],
+            layout=Layout(
+                grid_gap="10px",
+                width="100%",
+                overflow_y="auto",
+                align_items="flex-start",
+            ),
+        )
+
+    def _setup_handlers(self):
+        scatter = self.scatter
+        if scatter is None:
+            raise RuntimeError("scatter not initialized")
+
+        scatter.widget.observe(self._lasso_selection_polygon_change_handler, names=["lasso_selection_polygon"])
+        scatter.widget.observe(self._selection_handler, names=["selection"])
+        scatter.widget.observe(self._lasso_type_change_handler, names=["lasso_type"])
+
+        if self.selection_add is None or self.compute_predicates is None or self.color_by is None:
+            raise RuntimeError("UI not initialized")
+
+        self.selection_add.on_click(self._selection_add_handler)
+        self.compute_predicates.on_click(self._compute_predicates_handler)
+        self.color_by.observe(self._color_by_change_handler, names=["value"])
+
+    def _update_annotations(self):
+        scatter = self.scatter
+        if scatter is None:
+            return
+        try:
+            lasso_polygon = [] if self.lasso.polygon is None else [self.lasso.polygon]
+            overlays = self.selections.all_hulls() + lasso_polygon
+            scatter.annotations(overlays)
+        except Exception:
+            if self.debug_out is not None:
+                with self.debug_out:
+                    import traceback
+
+                    traceback.print_exc()
+
+    def _lasso_selection_polygon_change_handler(self, change):
+        scatter = self.scatter
+        if scatter is None:
+            return
+        if change["new"] is None:
+            self.lasso.polygon = None
+        else:
+            points = np.asarray(change["new"], dtype=float).tolist()
+            points.append(points[0])
+            self.lasso.polygon = Line(points, line_color=scatter.widget.color_selected)
+        self._update_annotations()
+
+    def _add_selection_element(self, selection: Selection):
+        scatter = self.scatter
+        if scatter is None or self.selections_elements is None or self.compute_predicates is None:
+            return
+
+        hex_color = to_hex(selection.color)
+        selection_name = Label(name=selection.name, style={"background": hex_color})
+        selection_remove = Button(
+            description="",
+            tooltip="Remove Selection",
+            icon="trash",
+            width=36,
+            background=hex_color,
+            rounded=["top-right", "bottom-right"],
+        )
+        element = GridBox([selection_name, selection_remove], layout=Layout(grid_template_columns="1fr 40px"))
+
+        def focus_handler(change):
+            if change["new"]:
+                scatter.zoom(to=selection.points, animation=500, padding=2)
+            else:
+                scatter.zoom(to=None, animation=500, padding=0)
+
+        selection_name.observe(focus_handler, names=["focus"])
+
+        def remove_handler(change):
+            self.selections_elements.children = [e for e in self.selections_elements.children if e != element]
+            self.selections.selections = [s for s in self.selections.selections if s != selection]
+            self._update_annotations()
+            self.compute_predicates.disabled = len(self.selections.selections) == 0
+
+        selection_remove.on_click(remove_handler)
+        self.selections_elements.children = self.selections_elements.children + (element,)
+
+    def _add_subdivided_selections(self):
+        if self.scatter is None or self.df is None:
+            return
+        if self.selection_num_subdivisions is None or self.selection_name is None:
+            return
+
+        scatter = self.scatter
+        df = self.df
+        selection_num_subdivisions = self.selection_num_subdivisions
+        selection_name = self.selection_name
+
+        lasso_polygon = np.asarray(scatter.widget.lasso_selection_polygon, dtype=float)
+        lasso_mid = int(lasso_polygon.shape[0] / 2)
+        lasso_part_one = lasso_polygon[:lasso_mid, :]
+        lasso_part_two = lasso_polygon[lasso_mid:, :][::-1]
+
+        n_split_points = selection_num_subdivisions.value + 1
+        sub_lassos_part_one = split_line_equidistant(lasso_part_one, n_split_points)
+        sub_lassos_part_two = split_line_equidistant(lasso_part_two, n_split_points)
+
+        base_name = selection_name.value
+        if len(base_name) == 0:
+            base_name = f"Selection {len(self.selections.selections) + 1}"
+
+        color_map = self.continuous_color_maps[selection_num_subdivisions.value]
+
+        for i, part_one in enumerate(sub_lassos_part_one):
+            polygon = np.vstack((part_one, sub_lassos_part_two[i][::-1]))
+            idxs = np.where(points_in_polygon(df[["x", "y"]].values, polygon))[0]
+            points = df.iloc[idxs][["x", "y"]].values
+            hull = ConvexHull(points)
+            hull_points = np.vstack((points[hull.vertices], points[hull.vertices[0]]))
+            color = color_map[i]
+            name = f"{base_name}.{i + 1}"
+
+            lasso_polygon_list = polygon.astype(float).tolist()
+            lasso_polygon_list.append(lasso_polygon_list[0])
+            hull_points_list = hull_points.astype(float).tolist()
+
+            selection = Selection(
+                index=len(self.selections.selections) + 1,
+                name=name,
+                points=idxs,
+                color=color,
+                lasso=Line(lasso_polygon_list),
+                hull=Line(hull_points_list, line_color=color, line_width=2),
+            )
+            self.selections.selections.append(selection)
+            self._add_selection_element(selection)
+
+    def _add_selection(self):
+        if self.scatter is None or self.df is None:
+            return
+        if self.selection_name is None:
+            return
+
+        scatter = self.scatter
+        df = self.df
+
+        idxs = scatter.selection()
+        points = df.iloc[idxs][["x", "y"]].values
+        hull = ConvexHull(points)
+        hull_points = np.vstack((points[hull.vertices], points[hull.vertices[0]]))
+        hull_points_py = hull_points.astype(float).tolist()
+        color = self.available_colors.pop(0)
+
+        spine = None
+        if scatter.widget.lasso_type == "brush":
+            lasso_polygon = np.asarray(scatter.widget.lasso_selection_polygon)
+            if lasso_polygon.shape[0] >= 2:
+                if lasso_polygon.shape[0] % 2 == 1:
+                    lasso_polygon = lasso_polygon[:-1]
+                mid = lasso_polygon.shape[0] // 2
+                spine = (lasso_polygon[:mid, :] + lasso_polygon[mid:, :]) / 2
+
+        name = self.selection_name.value
+        if len(name) == 0:
+            name = f"Selection {len(self.selections.selections) + 1}"
+
+        lasso_polygon = np.asarray(scatter.widget.lasso_selection_polygon, dtype=float)
+        lasso_polygon_list = lasso_polygon.astype(float).tolist()
+        lasso_polygon_list.append(lasso_polygon_list[0])
+
+        selection = Selection(
+            index=len(self.selections.selections) + 1,
+            name=name,
+            points=idxs,
+            color=color,
+            lasso=Line(lasso_polygon_list),
+            hull=Line(hull_points_py, line_color=color, line_width=2),
+            path=spine,
+        )
+        self.selections.selections.append(selection)
+        self._add_selection_element(selection)
+
+    def _selection_add_handler(self, event):
+        if self.scatter is None or self.compute_predicates is None or self.compute_predicates_wrapper is None:
+            return
+        if self.compute_predicates_between_selections is None:
+            return
+        if self.selection_subdivide is None:
+            return
+
+        scatter = self.scatter
+        selection_subdivide = self.selection_subdivide
+
+        try:
+            self.lasso.polygon = None
+
+            if scatter.widget.lasso_type == "brush" and selection_subdivide.value:
+                self._add_subdivided_selections()
+            else:
+                self._add_selection()
+
+            self.compute_predicates.disabled = False
+            scatter.selection([])
+            self._update_annotations()
+
+            if len(self.selections.selections) > 1:
+                self.compute_predicates_wrapper.children = (
+                    self.compute_predicates_between_selections,
+                    self.compute_predicates,
+                )
+            else:
+                self.compute_predicates_wrapper.children = (self.compute_predicates,)
+        except Exception:
+            import traceback
+
+            traceback.print_exc()
+
+    def _selection_handler(self, change):
+        if self.selection_add is None or self.selection_name is None:
+            return
+
+        if len(change["new"]) > 0:
+            self.selection_add.disabled = False
+            self.selection_name.disabled = False
+            self.selection_name.placeholder = "Name selection…"
+            new_index = 1
+            if len(self.selections.selections) > 0:
+                new_index = self.selections.selections[-1].index + 1
+            self.selection_name.value = f"Selection {new_index}"
+        else:
+            self.selection_add.disabled = True
+            self.selection_name.disabled = True
+            self.selection_name.placeholder = "Select some points…"
+            self.selection_name.value = ""
+
+    def _clear_predicates(self, event):
+        if self.compute_predicates is None or self.compute_predicates_wrapper is None:
+            return
+
+        self.compute_predicates.style = "primary"
+        self.compute_predicates.description = "Compute Predicates"
+        self.compute_predicates.on_click(self._compute_predicates_handler)
+
+        if self.selections_predicates is not None:
+            self.selections_predicates.children = ()
+
+        if self.compute_predicates_between_selections is not None and len(self.selections.selections) > 1:
+            self.compute_predicates_wrapper.children = (
+                self.compute_predicates_between_selections,
+                self.compute_predicates,
+            )
+        else:
+            self.compute_predicates_wrapper.children = (self.compute_predicates,)
+
+    def _fetch_pathways(self, gene):
+        url = f"https://reactome.org/ContentService/data/mapping/UniProt/{gene}/pathways?species=9606"
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            pathways = response.json()
+            return [{"Pathway": entry["displayName"], "stId": entry["stId"]} for entry in pathways]
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching Reactome pathways for {gene}: {e}")
+            return []
+
+    def _show_directional_results(self, directional_results):
+        if self.compute_predicates is None or self.selections_predicates is None:
+            return
+        if self.pathway_table_container is None or self.reactome_diagram_container is None:
+            return
+
+        compute_predicates = self.compute_predicates
+        selections_predicates = self.selections_predicates
+        pathway_table_container = self.pathway_table_container
+        reactome_diagram_container = self.reactome_diagram_container
+        debug_out = self.debug_out
+        log = self._log
+        adata = self.adata
+
+        compute_predicates.style = ""
+        compute_predicates.description = "Clear Results"
+        compute_predicates.on_click(self._clear_predicates)
+
+        all_results = []
+        for i, result in enumerate(directional_results):
+            for entry in result:
+                if "reject" in entry and not entry["reject"]:
+                    continue
+                all_results.append(
+                    {
+                        "Gene": entry["attribute"],
+                        "R": float(np.round(entry["interval"][0], 4)),
+                        "p": f"{entry['interval'][1]:.3e}",
+                        "Selection": entry.get("direction", f"Selection {i+1}"),
+                    }
+                )
+
+        results_df = pd.DataFrame(all_results)
+        results_df = results_df.dropna(subset=["R", "p"])
+        results_df = results_df.sort_values(by="R", ascending=False).reset_index(drop=True)
+
+        gene_table_widget = CorrelationTable(data=results_df.to_dict(orient="records"))
+        pathway_table_widget = PathwayTable(data=[])
+
+        pathway_table_container.layout.display = "none"
+        reactome_diagram_container.layout.display = "none"
+
+        from .widgets import GeneProjectionPlot
+        from ipywidgets import HTML as _HTML
+
+        gene_proj_plot = GeneProjectionPlot()
+        pathway_msg = _HTML("")
+
+        plot_box = VBox(
+            [gene_proj_plot],
+            layout=Layout(
+                flex="0 0 auto",
+                height="300px",
+                max_height="300px",
+                min_height="300px",
+                padding="0px",
+                overflow="visible",
+                align_self="stretch",
+                display="none",
+            ),
+        )
+
+        pathway_box = VBox(
+            [pathway_msg, pathway_table_widget],
+            layout=Layout(flex="1 1 auto", overflow="auto"),
+        )
+
+        pathway_table_container.children = [plot_box, pathway_box]
+        pathway_table_container.layout = Layout(
+            display="flex",
+            flex_direction="column",
+            height="420px",
+            max_height="420px",
+            overflow="visible",
+        )
+
+        def on_gene_click(change):
+            import traceback
+
+            gene = change["new"]
+            log(f"[UI] gene clicked: {gene!r}")
+            try:
+                pathways = self._fetch_pathways(gene)
+                pathway_table_widget.data = pathways
+                pathway_table_container.layout.display = "block"
+                pathway_msg.value = (
+                    f"<em>No Reactome pathways found for <b>{gene}</b>.</em>"
+                    if len(pathways) == 0
+                    else f"<b>Reactome pathways for {gene}</b>"
+                )
+                reactome_diagram_container.layout.display = "none"
+
+                ctx = get_context()
+                if ctx is None:
+                    log("No context found for projection plot")
+                    return
+                df = ctx.df
+                selections = ctx.selections
+
+                if len(selections.selections) == 0:
+                    log("No selections available for gene projection plot.")
+                    return
+
+                sel = selections.selections[-1]
+                selected_indices = sel.points
+                log(f"[plot] selection name={sel.name!r} n={len(selected_indices)}")
+
+                X = df[["x", "y"]].to_numpy(dtype=float)
+                Ux = X[:, 0] - X[:, 0].min()
+                Uy = X[:, 1] - X[:, 1].min()
+                px = float(np.ptp(Ux)) or 1.0
+                py = float(np.ptp(Uy)) or 1.0
+                U = np.c_[Ux / px, Uy / py]
+                U_sel = U[selected_indices]
+
+                dirv = U_sel[-1] - U_sel[0]
+                L2 = float(np.dot(dirv, dirv))
+                if L2 <= 1e-15:
+                    pts = df.iloc[selected_indices][["x", "y"]].to_numpy(dtype=float)
+                    v = pts[-1] - pts[0]
+                    nv = np.linalg.norm(v)
+                    if nv <= 1e-15:
+                        log("Degenerate selection; skipping plot.")
+                        return
+                    v = v / nv
+                    start = pts[0]
+                    proj = np.dot(pts - start, v)
+                    span = float(proj.max() - proj.min()) or 1.0
+                    proj = (proj - proj.min()) / span
+                else:
+                    celv = U_sel - U_sel[0]
+                    proj = (celv @ dirv) / (L2 + 1e-12)
+                    proj = np.clip(np.nan_to_num(proj, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0)
+
+                if gene in df.columns:
+                    expr_all = pd.to_numeric(df[gene], errors="coerce").to_numpy(dtype=float)
+                    log(f"[plot] gene {gene!r} found in df columns")
+                else:
+                    sub = adata[:, [gene]].X
+                    if hasattr(sub, "toarray"):
+                        sub = sub.toarray()
+                    expr_all = np.asarray(sub).ravel().astype(float)
+                    log(f"[plot] gene {gene!r} NOT in df slice; loaded from adata (len={len(expr_all)})")
+
+                expr = expr_all[selected_indices]
+                if not np.isfinite(expr).all():
+                    finite = np.isfinite(expr)
+                    if finite.any():
+                        med = float(np.median(expr[finite]))
+                        expr = np.where(finite, expr, med)
+                    else:
+                        log(f"Expression for {gene} has no finite values in the selection.")
+                        return
+
+                dx = proj.max() - proj.min()
+                dy = expr.max() - expr.min()
+                proj = np.linspace(0, 1, len(proj)) if dx <= 1e-12 else (proj - proj.min()) / (dx + 1e-12)
+                expr = np.zeros_like(expr) if dy <= 1e-12 else (expr - expr.min()) / (dy + 1e-12)
+
+                plot_data = [{"projection": float(p), "expression": float(e)} for p, e in zip(proj, expr)]
+                gene_proj_plot.data = plot_data
+                plot_box.layout.display = "block"
+                gene_proj_plot.gene = gene
+
+                log(
+                    f"[plot] {gene}: n={len(plot_data)} pts "
+                    f"proj=[{proj.min():.3f},{proj.max():.3f}] expr=[{expr.min():.3f},{expr.max():.3f}]"
+                )
+                log(f"[plot] first5={plot_data[:5]}")
+            except Exception:
+                if debug_out is not None:
+                    with debug_out:
+                        traceback.print_exc()
+
+        interactive_svg_widget = InteractiveSVG()
+
+        def on_pathway_click(change):
+            pathway_id = change["new"]
+            if not pathway_id:
+                return
+
+            svg_url = f"https://reactome.org/ContentService/exporter/diagram/{pathway_id}.svg"
+            try:
+                response = requests.get(svg_url)
+                response.raise_for_status()
+                svg_text = response.text.strip()
+                if len(svg_text) < 50:
+                    log("Empty SVG returned from Reactome")
+                    return
+
+                import base64
+
+                svg_base64 = base64.b64encode(svg_text.encode("utf-8")).decode("utf-8")
+                interactive_svg_widget.svg_content = svg_base64
+
+                reactome_diagram_container.children = [interactive_svg_widget]
+                reactome_diagram_container.layout.display = "block"
+
+                log(f"[SVG] Loaded Reactome diagram for {pathway_id}")
+            except Exception as e:
+                if debug_out is not None:
+                    with debug_out:
+                        print("Error fetching SVG diagram:", e)
+
+        gene_table_widget.observe(on_gene_click, names=["selected_gene"])
+        print("[UI] gene click observer attached")
+        pathway_table_widget.observe(on_pathway_click, names=["selected_pathway"])
+        selections_predicates.children = [gene_table_widget]
+        log("Showing directional results...")
+
+    def _compute_directional_analysis(self, df, selections: Selections):
+        if len(selections.selections) == 0:
+            return []
+
+        results = []
+        for selection in selections.selections:
+            selected_indices = selection.points
+            selected_embeddings = df.iloc[selected_indices][["x", "y"]].values
+            if selected_embeddings.shape[0] < 2:
+                continue
+
+            v = selected_embeddings[-1] - selected_embeddings[0]
+            v = v / np.linalg.norm(v)
+            start_point = selected_embeddings[0]
+            projections = np.array([np.dot(pt - start_point, v) for pt in selected_embeddings])
+
+            base_drop = [
+                "x",
+                "y",
+                "dpi",
+                "strain",
+                "percent.cmv.log10",
+                "seurat_clusters",
+                "virus.presence",
+                "Infection_localminima",
+                "UL123_define_infection",
+                "Infection_state",
+                "Infection_state_bkgd",
+            ]
+            columns_to_drop = [col for col in set(base_drop).union(self.available_metadata_cols) if col in df.columns]
+            selected_expression = df.iloc[selected_indices].drop(columns=columns_to_drop, errors="ignore")
+
+            batch_result_new = test_direction(selected_expression.values, projections)
+            rs = batch_result_new["correlation"].astype(float)
+            ps = batch_result_new["p_value"].astype(float)
+            genes = list(selected_expression.columns)
+            n_new = len(ps)
+
+            prev_len = 0 if (self.batch_results is None) else len(self.batch_results["p_value"])
+            p_values = ps if (self.batch_results is None) else np.concatenate([self.batch_results["p_value"], ps])
+
+            online_results_new = lord_test(p_values, self.online_results, alpha=self.fdr_alpha)
+            self.online_results = online_results_new
+            self.batch_results = {"p_value": p_values}
+
+            alpha_chunk = online_results_new["alpha_i"][prev_len : prev_len + n_new]
+            R_chunk = online_results_new["R"][prev_len : prev_len + n_new]
+
+            correlations = []
+            for j, gene in enumerate(genes):
+                if not bool(R_chunk[j]):
+                    continue
+
+                r = float(rs[j])
+                p = float(ps[j])
+                a = float(alpha_chunk[j])
+                correlations.append(
+                    {
+                        "attribute": gene,
+                        "interval": (r, p),
+                        "quality": abs(r),
+                        "alpha_i": a,
+                        "reject": True,
+                        "direction": selection.name,
+                    }
+                )
+            results.append(correlations)
+
+        return results
+
+    def _compute_predicates_handler(self, event):
+        if self.compute_predicates is None:
+            return
+        try:
+            if len(self.selections.selections) == 0:
+                return
+
+            self.compute_predicates.disabled = True
+            self.compute_predicates.description = "Computing Directional Analysis…"
+
+            if self.compute_predicates_between_selections is not None and self.compute_predicates_between_selections.value:
+                sels_for_run = self.selections
+            else:
+                last_only = Selections(selections=[self.selections.selections[-1]])
+                sels_for_run = last_only
+
+            directional_results = self._compute_directional_analysis(self.df, sels_for_run)
+            self._show_directional_results(directional_results)
+        except Exception:
+            import traceback
+
+            traceback.print_exc()
+        finally:
+            self.compute_predicates.disabled = False
+
+    def _lasso_type_change_handler(self, change):
+        if self.complete_add is None or self.add_controls is None or self.selection_subdivide_wrapper is None:
+            return
+        if change["new"] == "brush":
+            self.complete_add.children = (self.add_controls, self.selection_subdivide_wrapper)
+        else:
+            self.complete_add.children = (self.add_controls,)
+
+    def _color_by_change_handler(self, change):
+        if self.scatter is None:
+            return
+        new = change["new"]
+        if new in self.categorical_color_maps:
+            self.scatter.color(by=new, map=self.categorical_color_maps[new])
+        else:
+            self.scatter.color(by=new, map="magma")
+
+    def render(self) -> Context:
+        if self.ui is None:
+            raise RuntimeError("UI not built")
+        display(self.ui)
+
+        global _last_context
+        ctx = Context(
+            df=self.df,
+            selections=self.selections,
+            scatter=self.scatter,
+            ui=self.ui,
+            pathway_table_container=self.pathway_table_container,
+            reactome_diagram_container=self.reactome_diagram_container,
+        )
+        _last_context = ctx
+        return ctx
+
+
+def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
+    """Public API: construct and display the scSketch UI, returning the view Context."""
+    return _ScSketchDirectionalView(
+        adata,
+        metadata_cols=metadata_cols,
+        max_gene_options=max_gene_options,
+        fdr_alpha=fdr_alpha,
+    ).render()

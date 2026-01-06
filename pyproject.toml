@@ -5,6 +5,23 @@ build-backend = "hatchling.build"
 [project]
 name = "scsketch"
 version = "0.0.2"
+description = "Interactive exploration of single-cell embeddings with directional analysis"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    {name = "Askar Temirbek", email = "askar.temirbek@umassmed.edu"},
+    {name = "Andres Colubri", email = "andres.colubri@umassmed.edu"},
+    {name = "Fritz Lekschas", email = "code@lekschas.de"},
+    {name = "Kris Sankaran", email = "ksankaran@wisc.edu"},
+]
+keywords = ["single-cell", "visualization", "jupyter", "widget", "bioinformatics"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
 dependencies = [
     "anywidget",
     "jupyter-scatter>=0.21.0",
@@ -15,7 +32,14 @@ dependencies = [
     "requests",
     "umap-learn>=0.5.7",
 ]
-readme = "README.md"
+
+[project.scripts]
+scsketch = "scsketch._cli:main"
+
+[project.urls]
+Homepage = "https://github.com/colabobio/scsketch"
+Repository = "https://github.com/colabobio/scsketch"
+"Bug Tracker" = "https://github.com/colabobio/scsketch/issues"
 
 # For projects not using `uv`, you can install these development dependencies with:
 # `pip install -e ".[dev]"`

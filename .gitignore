@@ -1,24 +1,56 @@
-node_modules
-.venv
-dist
-.DS_Store
+# Node
+node_modules/
 
-# Python
-__pycache__
-.ipynb_checkpoints
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
 
+# Python packaging
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
 
-data/*.pq
-data/*.h5
-src/scsketch/data/*.pq
-src/scsketch/dimbridge.ipynb
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Caches / tooling
+.ruff_cache/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
 
 # Data / large binaries
 data/
 *.h5ad
+*.h5
+*.hdf5
 *.rds
+*.pq
+
+# Repo-specific data artifacts
+src/scsketch/data/*.pq
+src/scsketch/dimbridge.ipynb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+*~
 
 # Ignore all notebooks except the main demo
 *.ipynb
 !demo.ipynb
-.ipynb_checkpoints/
