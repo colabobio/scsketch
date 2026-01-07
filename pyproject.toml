@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scsketch"
-version = "0.0.2"
+version = "0.0.3"
 description = "Interactive exploration of single-cell embeddings with directional analysis"
 readme = "README.md"
 requires-python = ">=3.12"
