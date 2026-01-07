@@ -7,7 +7,7 @@ name = "scsketch"
 version = "0.0.2"
 description = "Interactive exploration of single-cell embeddings with directional analysis"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 authors = [
     {name = "Askar Temirbek", email = "askar.temirbek@umassmed.edu"},
     {name = "Andres Colubri", email = "andres.colubri@umassmed.edu"},
@@ -19,17 +19,21 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "Topic :: Scientific/Engineering :: Visualization",
 ]
 dependencies = [
-    "anywidget",
+    "anywidget>=0.9.0",
+    "ipywidgets>=8.0.0",
     "jupyter-scatter>=0.21.0",
-    "numpy",
-    "pandas",
-    "scanpy", 
-    "matplotlib",
-    "requests",
+    "llvmlite>=0.44.0",
+    "matplotlib>=3.7.0",
+    "numpy>=1.26.0",
+    "pandas>=2.0.0",
+    "requests>=2.31.0",
+    "scanpy>=1.9.0",
+    "scipy>=1.11.0",
     "umap-learn>=0.5.7",
 ]
 
@@ -46,21 +50,21 @@ Repository = "https://github.com/colabobio/scsketch"
 # If you're using `uv` for development, feel free to remove this section.
 [project.optional-dependencies]
 lab = [
-    "jupyterlab>=4",
+    "jupyterlab>=4.0.0",
 ]
 dev = [
-    "watchfiles", 
-    "jupyterlab",  
-    "llvmlite>=0.44.0", 
-    "torch", 
+    "watchfiles>=0.20.0",
+    "jupyterlab>=4.0.0",
+    "llvmlite>=0.44.0",
+    "torch>=2.2.0",
 ]
 
 # Dependency groups (recognized by `uv`). For more details, visit:
 # https://peps.python.org/pep-0735/
 [dependency-groups]
 dev = [
-    "watchfiles", 
-    "jupyterlab", 
-    "llvmlite>=0.44.0", 
-    "torch",
+    "watchfiles>=0.20.0",
+    "jupyterlab>=4.0.0",
+    "llvmlite>=0.44.0",
+    "torch>=2.2.0",
 ]
