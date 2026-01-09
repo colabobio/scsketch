@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import logging
 import traitlets
 from dataclasses import dataclass
 from itertools import cycle
@@ -12,6 +13,7 @@ from scipy.spatial import ConvexHull
 import scipy.stats as ss
 import requests
 
+from ._logging import LogLevel, configure_logging
 from .utils import (
     Lasso,
     Selection,
@@ -28,6 +30,8 @@ from .widgets import (
 
 from typing import Optional 
 import ipywidgets as ipyw
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Context:
@@ -124,7 +128,6 @@ def _legacy_view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05)
         If None, metadata will be skipped.
     """
     
-    # print("I am in view function")
     from IPython.display import display, HTML
     import numpy as np
     
@@ -162,25 +165,14 @@ def _legacy_view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05)
                 
             # print(f"Using metadata columns: {available_metadata_cols}")
         else:
-            print("No requested metadata columns found, continuing without metadata.")
+            logger.info("No requested metadata columns found; continuing without metadata.")
             available_metadata_cols = []
             metadata_df = pd.DataFrame(index=adata.obs_names)
            
     else:
         available_metadata_cols = []
         metadata_df = pd.DataFrame(index=adata.obs_names)
-        print("No metadata passed, continuing with UMAP + gene expression only.")
-
-    # # Gene Expression
-    # gene_exp_df = pd.DataFrame(
-    #     adata.X.toarray() if hasattr(adata.X, "toarray") else adata.X,
-    #     columns = adata.var_names,
-    #     index = adata.obs_names,
-    # )
-
-    # # Combine
-    # df = pd.concat([umap_df, metadata_df, gene_exp_df], axis=1)
-    # df = df.loc[:, ~df.columns.duplicated()]
+        logger.info("No metadata passed; continuing with UMAP + gene expression only.")
 
     # --- Gene Expression (thin slice for UI; avoid full densify) ---
     _gene_sorted = sorted(list(adata.var_names), key=lambda s: s.lower())
@@ -310,14 +302,14 @@ def _legacy_view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05)
     
     lasso = Lasso()
     selections = Selections()
+
     def update_annotations():
         try:
             lasso_polygon = [] if lasso.polygon is None else [lasso.polygon]
             overlays = selections.all_hulls() + lasso_polygon
             scatter.annotations(overlays)
-        except Exception as e:
-            with debug_out:
-                import traceback; traceback.print_exc()
+        except Exception:
+            logger.exception("Failed to update annotations")
     
     def lasso_selection_polygon_change_handler(change):
         if change["new"] is None:
@@ -383,14 +375,8 @@ def _legacy_view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05)
         ),
     )
 
-     # --- DEBUG PANEL: visible print area under the plot ---
-    import ipywidgets as widgets
-    debug_out = widgets.Output(layout=widgets.Layout(border='1px solid #444', max_height='140px', overflow_y='auto'))
-    display(debug_out)
-
     def log(*args):
-        with debug_out:
-            print(*args)
+        logger.debug(" ".join(str(a) for a in args))
     
     compute_predicates = Button(
         description="Compute Directional Search",
@@ -589,7 +575,7 @@ def _legacy_view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05)
     
     def clear_predicates(event):
         compute_predicates.style = "primary"
-        compute_predicates.description = "Compute Predicates"
+        compute_predicates.description = "Compute Directional Search"
         compute_predicates.on_click(compute_predicates_handler)
     
         selections_predicates.children = ()
@@ -619,7 +605,7 @@ def _legacy_view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05)
                 for entry in pathways
             ]
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching Reactome pathways for {gene}: {e}")
+            logger.warning("Error fetching Reactome pathways for %s: %s", gene, e)
             return []
     
     
@@ -817,9 +803,7 @@ def _legacy_view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05)
                 log(f"[plot] first5={plot_data[:5]}")
         
             except Exception:
-                # show full traceback in the debug panel so nothing is silent
-                with debug_out:
-                    traceback.print_exc()        
+                logger.exception("Error handling gene click")
 
             # Normalize safely so max != min (prevents flat or NaN scaling in JS)
             dx = proj.max() - proj.min()
@@ -884,12 +868,11 @@ def _legacy_view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05)
                 log(f"[SVG] Loaded Reactome diagram for {pathway_id}")
         
             except Exception as e:
-                with debug_out:
-                    print("Error fetching SVG diagram:", e) 
+                logger.warning("Error fetching SVG diagram: %s", e)
                     
         # connect handlers
         gene_table_widget.observe(on_gene_click, names=["selected_gene"])
-        print("[UI] gene click observer attached")
+        logger.debug("[UI] gene click observer attached")
         pathway_table_widget.observe(
             on_pathway_click, names=["selected_pathway"]
         )  # use selected_pathway traitlet
@@ -1275,11 +1258,21 @@ class _ScSketchDirectionalView:
     the instance.
     """
 
-    def __init__(self, adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
+    def __init__(
+        self,
+        adata,
+        metadata_cols=None,
+        max_gene_options=50,
+        fdr_alpha=0.05,
+        verbosity: LogLevel = "warning",
+    ):
+        configure_logging(verbosity)
+        self._logger = logger
         self.adata = adata
         self.metadata_cols = metadata_cols
         self.max_gene_options = max_gene_options
         self.fdr_alpha = fdr_alpha
+        self.verbosity = verbosity
 
         self.df: pd.DataFrame | None = None
         self.available_metadata_cols: list[str] = []
@@ -1340,6 +1333,7 @@ class _ScSketchDirectionalView:
         self.online_results = None
 
         self.debug_out: ipyw.Output | None = None
+        self.active_selection: Selection | None = None
 
         self.selection_name: Text | None = None
         self.selection_add: Button | None = None
@@ -1372,10 +1366,22 @@ class _ScSketchDirectionalView:
         self._setup_handlers()
 
     def _log(self, *args):
-        if self.debug_out is None:
-            return
-        with self.debug_out:
-            print(*args)
+        self._logger.debug(" ".join(str(a) for a in args))
+
+    def _clear_results_display(self, message: str | None = None):
+        if self.selections_predicates is not None:
+            if message:
+                self.selections_predicates.children = (ipyw.HTML(message),)
+            else:
+                self.selections_predicates.children = ()
+
+        if self.pathway_table_container is not None:
+            self.pathway_table_container.children = ()
+            self.pathway_table_container.layout.display = "none"
+
+        if self.reactome_diagram_container is not None:
+            self.reactome_diagram_container.children = ()
+            self.reactome_diagram_container.layout.display = "none"
 
     def _build_df(self):
         adata = self.adata
@@ -1396,13 +1402,13 @@ class _ScSketchDirectionalView:
                     if pd.api.types.is_object_dtype(metadata_df[col]) or pd.api.types.is_categorical_dtype(metadata_df[col]):
                         metadata_df[col] = metadata_df[col].astype(str)
             else:
-                print("No requested metadata columns found, continuing without metadata.")
+                self._logger.info("No requested metadata columns found; continuing without metadata.")
                 available_metadata_cols = []
                 metadata_df = pd.DataFrame(index=adata.obs_names)
         else:
             available_metadata_cols = []
             metadata_df = pd.DataFrame(index=adata.obs_names)
-            print("No metadata passed, continuing with UMAP + gene expression only.")
+            self._logger.info("No metadata passed; continuing with UMAP + gene expression only.")
 
         _gene_sorted = sorted(list(adata.var_names), key=lambda s: s.lower())
         gene_subset = _gene_sorted[: self.max_gene_options]
@@ -1491,11 +1497,6 @@ class _ScSketchDirectionalView:
         self.scatter = scatter
 
     def _build_ui(self):
-        self.debug_out = ipyw.Output(
-            layout=ipyw.Layout(border="1px solid #444", max_height="140px", overflow_y="auto")
-        )
-        display(self.debug_out)
-
         self.selection_name = Text(value="", placeholder="Select some points…", disabled=True)
         self.selection_name.layout.width = "100%"
 
@@ -1685,11 +1686,7 @@ class _ScSketchDirectionalView:
             overlays = self.selections.all_hulls() + lasso_polygon
             scatter.annotations(overlays)
         except Exception:
-            if self.debug_out is not None:
-                with self.debug_out:
-                    import traceback
-
-                    traceback.print_exc()
+            self._logger.exception("Failed to update annotations")
 
     def _lasso_selection_polygon_change_handler(self, change):
         scatter = self.scatter
@@ -1723,6 +1720,14 @@ class _ScSketchDirectionalView:
         def focus_handler(change):
             if change["new"]:
                 scatter.zoom(to=selection.points, animation=500, padding=2)
+                self.active_selection = selection
+                if selection.cached_results is not None:
+                    self._show_directional_results([selection.cached_results])
+                else:
+                    self._clear_results_display(
+                        f"<em>No cached results for <b>{selection.name}</b> yet. "
+                        f"Click <b>Compute Directional Search</b>.</em>"
+                    )
             else:
                 scatter.zoom(to=None, animation=500, padding=0)
 
@@ -1731,6 +1736,19 @@ class _ScSketchDirectionalView:
         def remove_handler(change):
             self.selections_elements.children = [e for e in self.selections_elements.children if e != element]
             self.selections.selections = [s for s in self.selections.selections if s != selection]
+            if self.active_selection is selection:
+                self.active_selection = self.selections.selections[-1] if self.selections.selections else None
+                if self.active_selection is None or self.active_selection.cached_results is None:
+                    self._clear_results_display(
+                        None
+                        if self.active_selection is None
+                        else (
+                            f"<em>No cached results for <b>{self.active_selection.name}</b> yet. "
+                            f"Click <b>Compute Directional Search</b>.</em>"
+                        )
+                    )
+                else:
+                    self._show_directional_results([self.active_selection.cached_results])
             self._update_annotations()
             self.compute_predicates.disabled = len(self.selections.selections) == 0
 
@@ -1851,6 +1869,15 @@ class _ScSketchDirectionalView:
             else:
                 self._add_selection()
 
+            self.active_selection = self.selections.selections[-1] if self.selections.selections else None
+            if self.active_selection is not None:
+                self._clear_results_display(
+                    f"<em>No cached results for <b>{self.active_selection.name}</b> yet. "
+                    f"Click <b>Compute Directional Search</b>.</em>"
+                )
+            else:
+                self._clear_results_display(None)
+
             self.compute_predicates.disabled = False
             scatter.selection([])
             self._update_annotations()
@@ -1863,9 +1890,7 @@ class _ScSketchDirectionalView:
             else:
                 self.compute_predicates_wrapper.children = (self.compute_predicates,)
         except Exception:
-            import traceback
-
-            traceback.print_exc()
+            self._logger.exception("Error updating compute_predicates UI state")
 
     def _selection_handler(self, change):
         if self.selection_add is None or self.selection_name is None:
@@ -1890,11 +1915,10 @@ class _ScSketchDirectionalView:
             return
 
         self.compute_predicates.style = "primary"
-        self.compute_predicates.description = "Compute Predicates"
+        self.compute_predicates.description = "Compute Directional Search"
         self.compute_predicates.on_click(self._compute_predicates_handler)
 
-        if self.selections_predicates is not None:
-            self.selections_predicates.children = ()
+        self._clear_results_display(None)
 
         if self.compute_predicates_between_selections is not None and len(self.selections.selections) > 1:
             self.compute_predicates_wrapper.children = (
@@ -1912,7 +1936,7 @@ class _ScSketchDirectionalView:
             pathways = response.json()
             return [{"Pathway": entry["displayName"], "stId": entry["stId"]} for entry in pathways]
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching Reactome pathways for {gene}: {e}")
+            self._logger.warning("Error fetching Reactome pathways for %s: %s", gene, e)
             return []
 
     def _show_directional_results(self, directional_results):
@@ -1925,7 +1949,6 @@ class _ScSketchDirectionalView:
         selections_predicates = self.selections_predicates
         pathway_table_container = self.pathway_table_container
         reactome_diagram_container = self.reactome_diagram_container
-        debug_out = self.debug_out
         log = self._log
         adata = self.adata
 
@@ -2018,7 +2041,7 @@ class _ScSketchDirectionalView:
                     log("No selections available for gene projection plot.")
                     return
 
-                sel = selections.selections[-1]
+                sel = self.active_selection if self.active_selection is not None else selections.selections[-1]
                 selected_indices = sel.points
                 log(f"[plot] selection name={sel.name!r} n={len(selected_indices)}")
 
@@ -2085,9 +2108,7 @@ class _ScSketchDirectionalView:
                 )
                 log(f"[plot] first5={plot_data[:5]}")
             except Exception:
-                if debug_out is not None:
-                    with debug_out:
-                        traceback.print_exc()
+                self._logger.exception("Error handling gene click")
 
         interactive_svg_widget = InteractiveSVG()
 
@@ -2115,12 +2136,10 @@ class _ScSketchDirectionalView:
 
                 log(f"[SVG] Loaded Reactome diagram for {pathway_id}")
             except Exception as e:
-                if debug_out is not None:
-                    with debug_out:
-                        print("Error fetching SVG diagram:", e)
+                self._logger.warning("Error fetching SVG diagram: %s", e)
 
         gene_table_widget.observe(on_gene_click, names=["selected_gene"])
-        print("[UI] gene click observer attached")
+        self._logger.debug("[UI] gene click observer attached")
         pathway_table_widget.observe(on_pathway_click, names=["selected_pathway"])
         selections_predicates.children = [gene_table_widget]
         log("Showing directional results...")
@@ -2134,6 +2153,7 @@ class _ScSketchDirectionalView:
             selected_indices = selection.points
             selected_embeddings = df.iloc[selected_indices][["x", "y"]].values
             if selected_embeddings.shape[0] < 2:
+                results.append([])
                 continue
 
             v = selected_embeddings[-1] - selected_embeddings[0]
@@ -2208,10 +2228,13 @@ class _ScSketchDirectionalView:
             if self.compute_predicates_between_selections is not None and self.compute_predicates_between_selections.value:
                 sels_for_run = self.selections
             else:
-                last_only = Selections(selections=[self.selections.selections[-1]])
+                target = self.active_selection if self.active_selection is not None else self.selections.selections[-1]
+                last_only = Selections(selections=[target])
                 sels_for_run = last_only
 
             directional_results = self._compute_directional_analysis(self.df, sels_for_run)
+            for sel, res in zip(sels_for_run.selections, directional_results):
+                sel.cached_results = res
             self._show_directional_results(directional_results)
         except Exception:
             import traceback
@@ -2255,11 +2278,12 @@ class _ScSketchDirectionalView:
         return ctx
 
 
-def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05):
+def view(adata, metadata_cols=None, max_gene_options=50, fdr_alpha=0.05, verbosity: LogLevel = "warning"):
     """Public API: construct and display the scSketch UI, returning the view Context."""
     return _ScSketchDirectionalView(
         adata,
         metadata_cols=metadata_cols,
         max_gene_options=max_gene_options,
         fdr_alpha=fdr_alpha,
+        verbosity=verbosity,
     ).render()

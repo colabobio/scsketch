@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 from jscatter import Line
@@ -49,6 +50,7 @@ class Selection:
     lasso: Line
     hull: Line
     path: np.ndarray | None = None
+    cached_results: list[dict[str, Any]] | None = None
 
 
 @dataclass
@@ -71,4 +73,3 @@ class Lasso:
     """Class for keeping track of the lasso polygon."""
 
     polygon: Line | None = None
-

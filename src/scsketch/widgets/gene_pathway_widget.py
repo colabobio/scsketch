@@ -1,6 +1,9 @@
 import requests
+import logging
 import traitlets
 from anywidget import AnyWidget
+
+logger = logging.getLogger(__name__)
 
 
 class GenePathwayWidget(AnyWidget):
@@ -98,7 +101,7 @@ class GenePathwayWidget(AnyWidget):
             ]
             self.pathways = pathways
         except requests.exceptions.RequestException as e:
-            print(f'Error fetching pathways for {gene}: {e}')
+            logger.warning("Error fetching pathways for %s: %s", gene, e)
             self.pathways = []
 
     @traitlets.observe('selected_pathway')
@@ -140,10 +143,8 @@ class GenePathwayWidget(AnyWidget):
 
             uniprot_ids = self.get_uniprot_ids(self.genes)
 
-            print(
-                f'Participant Proteins from Reactome API: {self.participant_proteins}'
-            )
-            print(f"UniProt IDs for User's Genes: {uniprot_ids}")
+            logger.debug("Participant proteins from Reactome API: %s", self.participant_proteins)
+            logger.debug("UniProt IDs for user's genes: %s", uniprot_ids)
 
             matched = list(
                 set(self.participant_proteins).intersection(set(uniprot_ids))
@@ -151,12 +152,12 @@ class GenePathwayWidget(AnyWidget):
             self.matched_proteins = matched
 
             if matched:
-                print(f'Matched Proteins Found in Pathway {pathway_id}: {matched}')
+                logger.debug("Matched proteins found in pathway %s: %s", pathway_id, matched)
             else:
-                print(f'No matched proteins found in Pathway {pathway_id}')
+                logger.debug("No matched proteins found in pathway %s", pathway_id)
 
         except requests.exceptions.RequestException as e:
-            print(f'Error fetching participants for pathway {pathway_id}: {e}')
+            logger.warning("Error fetching participants for pathway %s: %s", pathway_id, e)
             self.participant_proteins = []
 
     def get_uniprot_ids(self, gene_symbols):
@@ -182,9 +183,9 @@ class GenePathwayWidget(AnyWidget):
                                     ]  # Use the first one if multiple exist
                                 uniprot_mapping[gene] = primary_id
 
-            print(f'Gene Symbol to UniProt Mapping: {uniprot_mapping}')
+            logger.debug("Gene symbol to UniProt mapping: %s", uniprot_mapping)
             return list(uniprot_mapping.values())
 
         except requests.exceptions.RequestException as e:
-            print(f'Error fetching UniProt IDs: {e}')
+            logger.warning("Error fetching UniProt IDs: %s", e)
             return []

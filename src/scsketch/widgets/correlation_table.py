@@ -1,7 +1,10 @@
 import requests
+import logging
 import traitlets
 from anywidget import AnyWidget
 from traitlets import Dict, List, Unicode
+
+logger = logging.getLogger(__name__)
 
 
 class CorrelationTable(AnyWidget):
@@ -234,9 +237,9 @@ class CorrelationTable(AnyWidget):
                                     ]  # Use the first one if multiple exist
                                 uniprot_mapping[gene] = primary_id
 
-            print(f"Gene Symbol to UniProt Mapping: {uniprot_mapping}")
+            logger.debug("Gene symbol to UniProt mapping: %s", uniprot_mapping)
             return list(uniprot_mapping.values())
 
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching UniProt IDs: {e}")
+            logger.warning("Error fetching UniProt IDs: %s", e)
             return []
