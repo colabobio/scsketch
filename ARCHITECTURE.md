@@ -50,3 +50,7 @@ All UI state lives on a `_ScSketchDirectionalView` instance:
   - Zooms to the selection and activates it.
   - If cached results exist, restores them immediately; otherwise shows a “No cached results yet” message.
 
+## Layout notes
+
+- The UI uses `GridBox` for the main layout and relies on `min_width="0px"` for grid children to prevent CSS grid “min-content” sizing from shrinking the scatter plot column.
+- The sidebar uses `grid_template_rows="min-content max-content 1fr min-content"` with a fixed overall panel height so the middle section can scroll while keeping the compute button visible.

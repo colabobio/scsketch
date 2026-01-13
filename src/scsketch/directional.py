@@ -1560,13 +1560,17 @@ class _ScSketchDirectionalView:
             value=self.color_by_default,
             description="Color By:",
         )
-        self.plot_wrapper = VBox([scatter.show(), self.color_by])
+        self.plot_wrapper = VBox(
+            [scatter.show(), self.color_by],
+            layout=Layout(width="100%", min_width="0px"),
+        )
 
         self.pathway_table_container = VBox(
             [],
             layout=Layout(
                 overflow_y="auto",
                 height="400px",
+                min_width="0px",
                 border="1px solid #ddd",
                 padding="10px",
                 display="none",
@@ -1580,6 +1584,7 @@ class _ScSketchDirectionalView:
                 min_height="0px",
                 width="100%",
                 max_width="100%",
+                min_width="0px",
                 padding="10px",
                 display="none",
                 border="1px solid #ccc",
@@ -1595,8 +1600,9 @@ class _ScSketchDirectionalView:
             ],
             layout=Layout(
                 grid_template_rows="min-content max-content 1fr min-content",
-                overflow_y="auto",
-                height="800px",
+                overflow_y="hidden",
+                height="100%",
+                min_width="0px",
                 grid_gap="4px",
             ),
         )
@@ -1629,15 +1635,18 @@ class _ScSketchDirectionalView:
 
         combined_gene_pathway_panel = GridBox(
             [
-                VBox([self.sidebar], layout=Layout(overflow_y="auto", height="800px")),
-                VBox([self.pathway_table_container], layout=Layout(overflow_y="auto", height="800px")),
+                VBox([self.sidebar], layout=Layout(overflow_y="auto", height="100%", min_width="0px")),
+                VBox(
+                    [self.pathway_table_container],
+                    layout=Layout(overflow_y="auto", height="100%", min_width="0px"),
+                ),
             ],
             layout=Layout(
                 grid_template_columns="2fr 3fr",
                 grid_gap="5px",
                 align_items="flex-start",
-                height="auto",
-                max_height="500px",
+                height="760px",
+                min_width="0px",
             ),
         )
 
@@ -1648,6 +1657,7 @@ class _ScSketchDirectionalView:
                 grid_gap="10px",
                 height="auto",
                 align_items="flex-start",
+                width="100%",
             ),
         )
 
