@@ -5,7 +5,7 @@ import traitlets
 from dataclasses import dataclass
 from itertools import cycle
 from IPython.display import display, HTML
-from ipywidgets import Checkbox, Dropdown, GridBox, HBox, Layout, IntText, Text, VBox
+from ipywidgets import Checkbox, Dropdown, GridBox, HBox, Layout, IntText, FloatText, Text, VBox
 from jscatter import Scatter, glasbey_light, link, okabe_ito, Line
 from jscatter.widgets import Button
 from matplotlib.colors import to_hex
@@ -25,7 +25,7 @@ from .utils import (
 )
 from .widgets import (
     GenePathwayWidget, CorrelationTable, PathwayTable,
-    InteractiveSVG, Label, Div
+    InteractiveSVG, Label, Div, GeneViolinPlot
 )
 
 from typing import Optional 
@@ -1334,6 +1334,11 @@ class _ScSketchDirectionalView:
 
         self.debug_out: ipyw.Output | None = None
         self.active_selection: Selection | None = None
+        self.analysis_mode: str = "directional"  # "directional" | "differential"
+        self._pending_diffexpr: dict | None = None
+        self._diffexpr_global_stats: dict | None = None
+        self._diffexpr_last_fingerprint: tuple[int, int, int, int] | None = None
+        self._diffexpr_busy: bool = False
 
         self.selection_name: Text | None = None
         self.selection_add: Button | None = None
@@ -1346,6 +1351,12 @@ class _ScSketchDirectionalView:
         self.compute_predicates: Button | None = None
         self.compute_predicates_between_selections: Checkbox | None = None
         self.compute_predicates_wrapper: VBox | None = None
+        self.directional_controls_box: VBox | None = None
+        self.diff_auto: Checkbox | None = None
+        self.diff_t_threshold: FloatText | None = None
+        self.diff_p_threshold: FloatText | None = None
+        self.compute_diffexpr: Button | None = None
+        self.diff_controls_box: VBox | None = None
 
         self.add_controls: GridBox | None = None
         self.complete_add: VBox | None = None
@@ -1382,6 +1393,275 @@ class _ScSketchDirectionalView:
         if self.reactome_diagram_container is not None:
             self.reactome_diagram_container.children = ()
             self.reactome_diagram_container.layout.display = "none"
+
+    def _de_source(self):
+        adata = self.adata
+        if getattr(adata, "raw", None) is not None and getattr(adata.raw, "X", None) is not None:
+            return adata.raw.X, list(adata.raw.var_names), "raw"
+        return adata.X, list(adata.var_names), "X"
+
+    def _ensure_diffexpr_global_stats(self):
+        X, var_names, source = self._de_source()
+        if (
+            self._diffexpr_global_stats is not None
+            and self._diffexpr_global_stats.get("source") == source
+            and self._diffexpr_global_stats.get("n_obs") == int(X.shape[0])
+            and self._diffexpr_global_stats.get("n_vars") == int(X.shape[1])
+        ):
+            return
+
+        if hasattr(X, "sum"):
+            total_sum = np.asarray(X.sum(axis=0)).ravel()
+        else:
+            total_sum = np.asarray(np.sum(X, axis=0)).ravel()
+
+        if hasattr(X, "power"):
+            total_sqsum = np.asarray(X.power(2).sum(axis=0)).ravel()
+        else:
+            total_sqsum = np.asarray(np.einsum("ij,ij->j", X, X)).ravel()
+
+        self._diffexpr_global_stats = {
+            "source": source,
+            "n_obs": int(X.shape[0]),
+            "n_vars": int(X.shape[1]),
+            "var_names": var_names,
+            "sum": total_sum.astype(float, copy=False),
+            "sqsum": total_sqsum.astype(float, copy=False),
+        }
+
+    def _compute_diffexpr(self, selected_indices: np.ndarray, selection_label: str) -> list[dict]:
+        self._ensure_diffexpr_global_stats()
+        stats = self._diffexpr_global_stats
+        if stats is None:
+            return []
+
+        X, var_names, source = self._de_source()
+        total_sum = stats["sum"]
+        total_sqsum = stats["sqsum"]
+
+        selected_indices = np.asarray(selected_indices, dtype=int)
+        selected_indices = selected_indices[(selected_indices >= 0) & (selected_indices < int(X.shape[0]))]
+        selected_indices = np.unique(selected_indices)
+
+        n1 = int(selected_indices.shape[0])
+        n = int(X.shape[0])
+        n2 = n - n1
+        if n1 < 2 or n2 < 2:
+            return []
+
+        X1 = X[selected_indices, :]
+        if hasattr(X1, "sum"):
+            sum1 = np.asarray(X1.sum(axis=0)).ravel().astype(float, copy=False)
+        else:
+            sum1 = np.asarray(np.sum(X1, axis=0)).ravel().astype(float, copy=False)
+
+        if hasattr(X1, "power"):
+            sqsum1 = np.asarray(X1.power(2).sum(axis=0)).ravel().astype(float, copy=False)
+        else:
+            sqsum1 = np.asarray(np.einsum("ij,ij->j", X1, X1)).ravel().astype(float, copy=False)
+
+        sum2 = (total_sum - sum1).astype(float, copy=False)
+        sqsum2 = (total_sqsum - sqsum1).astype(float, copy=False)
+
+        mean1 = sum1 / n1
+        mean2 = sum2 / n2
+
+        var1 = (sqsum1 - (sum1 * sum1) / n1) / (n1 - 1)
+        var2 = (sqsum2 - (sum2 * sum2) / n2) / (n2 - 1)
+        var1 = np.maximum(var1, 0.0)
+        var2 = np.maximum(var2, 0.0)
+        std1 = np.sqrt(var1)
+        std2 = np.sqrt(var2)
+
+        t_stat, p_val = ss.ttest_ind_from_stats(
+            mean1=mean1,
+            std1=std1,
+            nobs1=n1,
+            mean2=mean2,
+            std2=std2,
+            nobs2=n2,
+            equal_var=False,
+        )
+
+        t_stat = np.asarray(t_stat, dtype=float)
+        p_val = np.asarray(p_val, dtype=float)
+        ok = np.isfinite(t_stat) & np.isfinite(p_val)
+
+        t_thr = float(self.diff_t_threshold.value) if self.diff_t_threshold is not None else 2.0
+        p_thr = float(self.diff_p_threshold.value) if self.diff_p_threshold is not None else 0.05
+
+        keep = ok & (np.abs(t_stat) >= t_thr) & (p_val <= p_thr)
+        idx = np.where(keep)[0]
+        if idx.size == 0:
+            return []
+
+        order = np.argsort(np.abs(t_stat[idx]))[::-1]
+        idx = idx[order]
+        idx = idx[:200]
+
+        out: list[dict] = []
+        for j in idx:
+            out.append(
+                {
+                    "attribute": var_names[int(j)],
+                    "interval": (float(t_stat[int(j)]), float(p_val[int(j)])),
+                    "quality": float(abs(t_stat[int(j)])),
+                    "direction": selection_label,
+                }
+            )
+        return out
+
+    def _show_diffexpr_results(
+        self,
+        diff_results: list[dict],
+        selection_label: str,
+        selected_indices: np.ndarray | None = None,
+    ):
+        if self.selections_predicates is None:
+            return
+        if self.pathway_table_container is None or self.reactome_diagram_container is None:
+            return
+
+        if len(diff_results) == 0:
+            self._clear_results_display(
+                f"<em>No differential results passed thresholds for <b>{selection_label}</b>.</em>"
+            )
+            return
+
+        rows = []
+        for entry in diff_results:
+            t, p = entry["interval"]
+            rows.append(
+                {
+                    "Gene": entry["attribute"],
+                    "T": float(np.round(float(t), 4)),
+                    "p": f"{float(p):.3e}",
+                    "Selection": selection_label,
+                }
+            )
+
+        results_df = pd.DataFrame(rows)
+        results_df = results_df.dropna(subset=["T", "p"])
+        results_df["_absT"] = results_df["T"].abs()
+        results_df = results_df.sort_values(by="_absT", ascending=False).drop(columns=["_absT"]).reset_index(drop=True)
+
+        gene_table_widget = CorrelationTable(
+            data=results_df.to_dict(orient="records"),
+            columns=["Gene", "T", "p", "Selection"],
+        )
+
+        from ipywidgets import HTML as _HTML
+
+        violin = GeneViolinPlot()
+        title = _HTML("")
+        plot_box = VBox(
+            [title, violin],
+            layout=Layout(
+                flex="0 0 auto",
+                height="270px",
+                max_height="270px",
+                min_height="270px",
+                padding="0px",
+                overflow="hidden",
+                align_self="stretch",
+                display="none",
+            ),
+        )
+        self.pathway_table_container.children = [plot_box]
+        self.pathway_table_container.layout.display = "block"
+        self.reactome_diagram_container.layout.display = "none"
+
+        def on_gene_click(change):
+            gene = change["new"]
+            if not gene:
+                return
+            try:
+                X, var_names, _ = self._de_source()
+                if gene not in var_names:
+                    return
+                gene_idx = int(var_names.index(gene))
+
+                if selected_indices is not None:
+                    sel = np.unique(np.asarray(selected_indices, dtype=int))
+                elif self.active_selection is not None:
+                    sel = np.unique(np.asarray(self.active_selection.points, dtype=int))
+                elif self.scatter is not None:
+                    sel = np.unique(np.asarray(self.scatter.selection(), dtype=int))
+                else:
+                    return
+                n_obs = int(X.shape[0])
+                if sel.size < 1 or sel.size >= n_obs:
+                    return
+
+                max_sel = 5000
+                max_bg = 5000
+                rng = np.random.default_rng(0)
+
+                if sel.size > max_sel:
+                    sel_samp = rng.choice(sel, size=max_sel, replace=False)
+                else:
+                    sel_samp = sel
+
+                mask = np.ones(n_obs, dtype=bool)
+                mask[sel] = False
+                bg_idx = np.flatnonzero(mask)
+                if bg_idx.size > max_bg:
+                    bg_samp = rng.choice(bg_idx, size=max_bg, replace=False)
+                else:
+                    bg_samp = bg_idx
+
+                col_sel = X[sel_samp, gene_idx]
+                col_bg = X[bg_samp, gene_idx]
+                sel_vals = np.asarray(col_sel.toarray() if hasattr(col_sel, "toarray") else col_sel).ravel().astype(float)
+                bg_vals = np.asarray(col_bg.toarray() if hasattr(col_bg, "toarray") else col_bg).ravel().astype(float)
+
+                vmin = float(np.min([np.min(sel_vals) if sel_vals.size else 0.0, np.min(bg_vals) if bg_vals.size else 0.0]))
+                vmax = float(np.max([np.max(sel_vals) if sel_vals.size else 0.0, np.max(bg_vals) if bg_vals.size else 0.0]))
+                if not np.isfinite(vmin) or not np.isfinite(vmax):
+                    return
+                if vmax <= vmin:
+                    vmax = vmin + 1e-6
+
+                bins = np.linspace(vmin, vmax, 51)
+                sel_hist, _ = np.histogram(sel_vals, bins=bins, density=True)
+                bg_hist, _ = np.histogram(bg_vals, bins=bins, density=True)
+
+                violin.gene = gene
+                violin.data = {
+                    "bins": bins.tolist(),
+                    "selected": sel_hist.tolist(),
+                    "background": bg_hist.tolist(),
+                }
+                title.value = f"<b>{gene}</b> — selected n={sel.size}, background n={n_obs - sel.size} (sampled)"
+                plot_box.layout.display = "block"
+            except Exception:
+                self._logger.exception("Error rendering differential plot")
+
+        gene_table_widget.observe(on_gene_click, names=["selected_gene"])
+        self.selections_predicates.children = [gene_table_widget]
+
+    def _schedule_auto_diffexpr(self, selected_indices: np.ndarray):
+        if self.diff_auto is None or not bool(self.diff_auto.value):
+            return
+        sel = np.asarray(selected_indices, dtype=int)
+        sel = np.unique(sel)
+        if sel.size == 0:
+            return
+
+        fingerprint = (int(sel.size), int(sel[0]), int(sel[-1]), int(sel.sum(dtype=np.int64)))
+        if self._diffexpr_busy or self._diffexpr_last_fingerprint == fingerprint:
+            return
+        self._diffexpr_last_fingerprint = fingerprint
+
+        try:
+            self._diffexpr_busy = True
+            res = self._compute_diffexpr(sel, "Current selection")
+            self._pending_diffexpr = {"points": np.sort(sel), "results": res}
+            self._show_diffexpr_results(res, "Current selection", selected_indices=sel)
+        except Exception:
+            self._logger.exception("Auto differential compute failed")
+        finally:
+            self._diffexpr_busy = False
 
     def _build_df(self):
         adata = self.adata
@@ -1527,13 +1807,49 @@ class _ScSketchDirectionalView:
         self.compute_predicates_between_selections = Checkbox(
             value=False, description="Compare Between Selections", indent=False
         )
-        self.compute_predicates_wrapper = VBox([self.compute_predicates])
+        self.directional_controls_box = VBox([self.compute_predicates])
+
+        self.diff_auto = Checkbox(value=True, description="Auto-compute DE", indent=False)
+        self.diff_t_threshold = FloatText(value=2.0, step=0.5, description="|T| ≥")
+        self.diff_t_threshold.layout.width = "100%"
+        self.diff_t_threshold.style = {"description_width": "50px"}
+
+        self.diff_p_threshold = FloatText(value=0.05, step=0.01, description="p ≤")
+        self.diff_p_threshold.layout.width = "100%"
+        self.diff_p_threshold.style = {"description_width": "35px"}
+
+        diff_thresholds = GridBox(
+            [self.diff_t_threshold, self.diff_p_threshold],
+            layout=Layout(grid_template_columns="1fr 1fr", width="100%", min_width="0px", grid_gap="6px"),
+        )
+        self.compute_diffexpr = Button(
+            description="Compute DE",
+            style="primary",
+            disabled=True,
+            full_width=True,
+        )
+        self.diff_controls_box = VBox(
+            [
+                self.diff_auto,
+                diff_thresholds,
+                self.compute_diffexpr,
+            ],
+            layout=Layout(display="none"),
+        )
+
+        self.compute_predicates_wrapper = VBox([self.directional_controls_box, self.diff_controls_box])
 
         self.add_controls = GridBox(
             [self.selection_name, self.selection_add],
             layout=Layout(grid_template_columns="1fr 40px"),
         )
         self.complete_add = VBox([self.add_controls], layout=Layout(grid_gap="4px"))
+
+        scatter = self.scatter
+        if scatter is not None and scatter.widget.lasso_type == "freeform":
+            self.analysis_mode = "differential"
+            self.directional_controls_box.layout.display = "none"
+            self.diff_controls_box.layout.display = "flex"
 
     def _build_layout(self):
         if self.df is None or self.scatter is None:
@@ -1685,6 +2001,8 @@ class _ScSketchDirectionalView:
 
         self.selection_add.on_click(self._selection_add_handler)
         self.compute_predicates.on_click(self._compute_predicates_handler)
+        if self.compute_diffexpr is not None:
+            self.compute_diffexpr.on_click(self._compute_diffexpr_handler)
         self.color_by.observe(self._color_by_change_handler, names=["value"])
 
     def _update_annotations(self):
@@ -1731,13 +2049,26 @@ class _ScSketchDirectionalView:
             if change["new"]:
                 scatter.zoom(to=selection.points, animation=500, padding=2)
                 self.active_selection = selection
-                if selection.cached_results is not None:
-                    self._show_directional_results([selection.cached_results])
+                if self.analysis_mode == "differential":
+                    if selection.cached_diffexpr is not None:
+                        self._show_diffexpr_results(
+                            selection.cached_diffexpr,
+                            selection.name,
+                            selected_indices=np.asarray(selection.points, dtype=int),
+                        )
+                    else:
+                        self._clear_results_display(
+                            f"<em>No cached differential results for <b>{selection.name}</b> yet. "
+                            f"Make a freeform selection to compute DE.</em>"
+                        )
                 else:
-                    self._clear_results_display(
-                        f"<em>No cached results for <b>{selection.name}</b> yet. "
-                        f"Click <b>Compute Directional Search</b>.</em>"
-                    )
+                    if selection.cached_results is not None:
+                        self._show_directional_results([selection.cached_results])
+                    else:
+                        self._clear_results_display(
+                            f"<em>No cached results for <b>{selection.name}</b> yet. "
+                            f"Click <b>Compute Directional Search</b>.</em>"
+                        )
             else:
                 scatter.zoom(to=None, animation=500, padding=0)
 
@@ -1748,17 +2079,34 @@ class _ScSketchDirectionalView:
             self.selections.selections = [s for s in self.selections.selections if s != selection]
             if self.active_selection is selection:
                 self.active_selection = self.selections.selections[-1] if self.selections.selections else None
-                if self.active_selection is None or self.active_selection.cached_results is None:
-                    self._clear_results_display(
-                        None
-                        if self.active_selection is None
-                        else (
-                            f"<em>No cached results for <b>{self.active_selection.name}</b> yet. "
-                            f"Click <b>Compute Directional Search</b>.</em>"
+                if self.analysis_mode == "differential":
+                    if self.active_selection is None or self.active_selection.cached_diffexpr is None:
+                        self._clear_results_display(
+                            None
+                            if self.active_selection is None
+                            else (
+                                f"<em>No cached differential results for <b>{self.active_selection.name}</b> yet. "
+                                f"Make a freeform selection to compute DE.</em>"
+                            )
                         )
-                    )
+                    else:
+                        self._show_diffexpr_results(
+                            self.active_selection.cached_diffexpr,
+                            self.active_selection.name,
+                            selected_indices=np.asarray(self.active_selection.points, dtype=int),
+                        )
                 else:
-                    self._show_directional_results([self.active_selection.cached_results])
+                    if self.active_selection is None or self.active_selection.cached_results is None:
+                        self._clear_results_display(
+                            None
+                            if self.active_selection is None
+                            else (
+                                f"<em>No cached results for <b>{self.active_selection.name}</b> yet. "
+                                f"Click <b>Compute Directional Search</b>.</em>"
+                            )
+                        )
+                    else:
+                        self._show_directional_results([self.active_selection.cached_results])
             self._update_annotations()
             self.compute_predicates.disabled = len(self.selections.selections) == 0
 
@@ -1867,6 +2215,8 @@ class _ScSketchDirectionalView:
             return
         if self.selection_subdivide is None:
             return
+        if self.directional_controls_box is None:
+            return
 
         scatter = self.scatter
         selection_subdivide = self.selection_subdivide
@@ -1880,25 +2230,49 @@ class _ScSketchDirectionalView:
                 self._add_selection()
 
             self.active_selection = self.selections.selections[-1] if self.selections.selections else None
-            if self.active_selection is not None:
-                self._clear_results_display(
-                    f"<em>No cached results for <b>{self.active_selection.name}</b> yet. "
-                    f"Click <b>Compute Directional Search</b>.</em>"
-                )
+            if self.analysis_mode == "differential":
+                if self.active_selection is not None and self._pending_diffexpr is not None:
+                    pts = np.sort(np.asarray(self.active_selection.points, dtype=int))
+                    pend_pts = np.asarray(self._pending_diffexpr.get("points", []), dtype=int)
+                    if pend_pts.size == pts.size and np.array_equal(pend_pts, pts):
+                        pending = self._pending_diffexpr.get("results", []) or []
+                        for entry in pending:
+                            if isinstance(entry, dict):
+                                entry["direction"] = self.active_selection.name
+                        self.active_selection.cached_diffexpr = pending
+                if self.active_selection is not None and self.active_selection.cached_diffexpr is not None:
+                    self._show_diffexpr_results(
+                        self.active_selection.cached_diffexpr,
+                        self.active_selection.name,
+                        selected_indices=np.asarray(self.active_selection.points, dtype=int),
+                    )
+                elif self.active_selection is not None:
+                    self._clear_results_display(
+                        f"<em>No cached differential results for <b>{self.active_selection.name}</b> yet. "
+                        f"Make a freeform selection to compute DE.</em>"
+                    )
+                else:
+                    self._clear_results_display(None)
             else:
-                self._clear_results_display(None)
+                if self.active_selection is not None:
+                    self._clear_results_display(
+                        f"<em>No cached results for <b>{self.active_selection.name}</b> yet. "
+                        f"Click <b>Compute Directional Search</b>.</em>"
+                    )
+                else:
+                    self._clear_results_display(None)
 
             self.compute_predicates.disabled = False
             scatter.selection([])
             self._update_annotations()
 
             if len(self.selections.selections) > 1:
-                self.compute_predicates_wrapper.children = (
+                self.directional_controls_box.children = (
                     self.compute_predicates_between_selections,
                     self.compute_predicates,
                 )
             else:
-                self.compute_predicates_wrapper.children = (self.compute_predicates,)
+                self.directional_controls_box.children = (self.compute_predicates,)
         except Exception:
             self._logger.exception("Error updating compute_predicates UI state")
 
@@ -1914,14 +2288,22 @@ class _ScSketchDirectionalView:
             if len(self.selections.selections) > 0:
                 new_index = self.selections.selections[-1].index + 1
             self.selection_name.value = f"Selection {new_index}"
+            if self.analysis_mode == "differential":
+                if self.compute_diffexpr is not None:
+                    self.compute_diffexpr.disabled = False
+                self._schedule_auto_diffexpr(np.asarray(change["new"], dtype=int))
         else:
             self.selection_add.disabled = True
             self.selection_name.disabled = True
             self.selection_name.placeholder = "Select some points…"
             self.selection_name.value = ""
+            if self.analysis_mode == "differential" and self.compute_diffexpr is not None:
+                self.compute_diffexpr.disabled = self.active_selection is None
 
     def _clear_predicates(self, event):
         if self.compute_predicates is None or self.compute_predicates_wrapper is None:
+            return
+        if self.directional_controls_box is None:
             return
 
         self.compute_predicates.style = "primary"
@@ -1931,12 +2313,12 @@ class _ScSketchDirectionalView:
         self._clear_results_display(None)
 
         if self.compute_predicates_between_selections is not None and len(self.selections.selections) > 1:
-            self.compute_predicates_wrapper.children = (
+            self.directional_controls_box.children = (
                 self.compute_predicates_between_selections,
                 self.compute_predicates,
             )
         else:
-            self.compute_predicates_wrapper.children = (self.compute_predicates,)
+            self.directional_controls_box.children = (self.compute_predicates,)
 
     def _fetch_pathways(self, gene):
         url = f"https://reactome.org/ContentService/data/mapping/UniProt/{gene}/pathways?species=9606"
@@ -2256,10 +2638,64 @@ class _ScSketchDirectionalView:
     def _lasso_type_change_handler(self, change):
         if self.complete_add is None or self.add_controls is None or self.selection_subdivide_wrapper is None:
             return
-        if change["new"] == "brush":
-            self.complete_add.children = (self.add_controls, self.selection_subdivide_wrapper)
-        else:
+        if change["new"] == "freeform":
+            self.analysis_mode = "differential"
+            if self.directional_controls_box is not None:
+                self.directional_controls_box.layout.display = "none"
+            if self.diff_controls_box is not None:
+                self.diff_controls_box.layout.display = "flex"
             self.complete_add.children = (self.add_controls,)
+            if self.compute_diffexpr is not None:
+                self.compute_diffexpr.disabled = (self.scatter is None or len(self.scatter.selection()) == 0) and (self.active_selection is None)
+            self._clear_results_display("<em>Differential mode. Make a freeform selection to compute DE.</em>")
+        elif change["new"] == "brush":
+            self.analysis_mode = "directional"
+            if self.directional_controls_box is not None:
+                self.directional_controls_box.layout.display = "flex"
+            if self.diff_controls_box is not None:
+                self.diff_controls_box.layout.display = "none"
+            self.complete_add.children = (self.add_controls, self.selection_subdivide_wrapper)
+            if self.compute_predicates is not None:
+                self.compute_predicates.style = "primary"
+                self.compute_predicates.description = "Compute Directional Search"
+                self.compute_predicates.on_click(self._compute_predicates_handler)
+            self._clear_results_display(None)
+        else:
+            self.analysis_mode = "directional"
+            if self.directional_controls_box is not None:
+                self.directional_controls_box.layout.display = "flex"
+            if self.diff_controls_box is not None:
+                self.diff_controls_box.layout.display = "none"
+            self.complete_add.children = (self.add_controls,)
+            if self.compute_predicates is not None:
+                self.compute_predicates.style = "primary"
+                self.compute_predicates.description = "Compute Directional Search"
+                self.compute_predicates.on_click(self._compute_predicates_handler)
+            self._clear_results_display(None)
+
+    def _compute_diffexpr_handler(self, event):
+        if self.scatter is None:
+            return
+        if self.compute_diffexpr is None:
+            return
+        try:
+            self.compute_diffexpr.disabled = True
+            self.compute_diffexpr.description = "Computing DE…"
+
+            if len(self.scatter.selection()) > 0:
+                sel = np.asarray(self.scatter.selection(), dtype=int)
+                label = "Current selection"
+                res = self._compute_diffexpr(sel, label)
+                self._pending_diffexpr = {"points": np.sort(np.unique(sel)), "results": res}
+                self._show_diffexpr_results(res, label, selected_indices=np.unique(sel))
+            elif self.active_selection is not None:
+                label = self.active_selection.name
+                res = self._compute_diffexpr(self.active_selection.points, label)
+                self.active_selection.cached_diffexpr = res
+                self._show_diffexpr_results(res, label, selected_indices=np.asarray(self.active_selection.points, dtype=int))
+        finally:
+            self.compute_diffexpr.disabled = False
+            self.compute_diffexpr.description = "Compute DE"
 
     def _color_by_change_handler(self, change):
         if self.scatter is None:

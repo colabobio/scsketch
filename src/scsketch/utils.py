@@ -51,6 +51,7 @@ class Selection:
     hull: Line
     path: np.ndarray | None = None
     cached_results: list[dict[str, Any]] | None = None
+    cached_diffexpr: list[dict[str, Any]] | None = None
 
 
 @dataclass

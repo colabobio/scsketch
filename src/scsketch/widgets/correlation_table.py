@@ -43,8 +43,9 @@ class CorrelationTable(AnyWidget):
       const initializeTable = () => {
         const data = model.get("data") || [];
 
-        //Always show these columns, in this order:
-        const columns = ["Gene", "R", "p", "Selection"];  //removed "alpha_i" and "reject"
+        // Always show these columns, in this order:
+        // Default is directional mode: ["Gene", "R", "p", "Selection"].
+        const columns = model.get("columns") || ["Gene", "R", "p", "Selection"];
         
         //Header
         const headerRow = document.createElement("tr");
@@ -71,7 +72,7 @@ class CorrelationTable(AnyWidget):
             const td = document.createElement("td");
             const val = row[col];
             
-            if (col === "R" || col === "alpha_i") {
+            if (col === "R" || col === "T" || col === "alpha_i") {
             // format to 4 decimal places if numeric
               const num = Number(val);
               td.textContent = Number.isFinite(num) ? num.toFixed(4) : (val ?? "");
@@ -174,11 +175,15 @@ class CorrelationTable(AnyWidget):
       width: 100%;
       border-collapse: collapse;
       margin-top: 10px;
+      table-layout: fixed;
     }
     .correlation-table th, .correlation-table td {
       border: 1px solid #ddd;
       padding: 8px;
       text-align: left;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .correlation-table th {
       background-color: #333;
@@ -207,6 +212,7 @@ class CorrelationTable(AnyWidget):
     """
 
     data = List(Dict()).tag(sync=True)
+    columns = List(Unicode(), default_value=["Gene", "R", "p", "Selection"]).tag(sync=True)
     selected_gene = traitlets.Unicode("").tag(sync=True)
     pathways = traitlets.List([]).tag(sync=True)
     selected_pathway = traitlets.Unicode("").tag(sync=True)

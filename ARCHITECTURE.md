@@ -30,6 +30,16 @@ All UI state lives on a `_ScSketchDirectionalView` instance:
 - `Selection.cached_results` (`list[dict] | None`)
   - Cached per-selection directional results.
   - Stored so users can switch between selections and re-open the previously computed gene list without recomputing.
+- `Selection.cached_diffexpr` (`list[dict] | None`)
+  - Cached per-selection differential-expression results (Welch t-test; selected vs background).
+  - Stored so users can switch between saved selections and re-open the previous DE gene list without recomputing.
+- `self.analysis_mode` (`"directional"` | `"differential"`)
+  - Current analysis mode.
+  - `lasso_type == "freeform"` enables differential mode and hides the directional compute UI.
+  - Other lasso types use directional mode.
+- `self._pending_diffexpr` (`dict | None`)
+  - Temporary cache for differential results computed from an unsaved “current selection”.
+  - When the user saves that selection, the cached DE results are attached to the created `Selection.cached_diffexpr`.
 
 ## Compute vs render
 
@@ -37,18 +47,29 @@ All UI state lives on a `_ScSketchDirectionalView` instance:
   - Returns a list of per-selection result lists (one entry per selection).
 - Rendering happens in `_ScSketchDirectionalView._show_directional_results(directional_results)`:
   - Builds the gene table widget from results and wires the gene-click handlers.
+- Differential compute happens in `_ScSketchDirectionalView._compute_diffexpr(selected_indices, selection_label)`:
+  - Uses `adata.raw.X` if present, else `adata.X`.
+  - Compares selected cells vs all non-selected cells using Welch t-test computed from summary stats.
+- Differential rendering happens in `_ScSketchDirectionalView._show_diffexpr_results(diff_results, ...)`:
+  - Renders a table with `T` and `p` (Sciviewer-like).
+  - Gene click renders a compact violin-like plot of selected vs background (sampled for plotting).
 
 ## UI behavior rules
 
 - **Compute target**:
   - If “Compare Between Selections” is enabled, compute runs over all saved selections.
   - Otherwise, compute runs over the active selection (fallback to the latest selection if none is active).
+- **Differential mode** (`lasso_type == "freeform"`):
+  - Directional controls are hidden and DE controls are shown (`Auto-compute DE`, thresholds, `Compute DE`).
+  - DE can auto-run when the current selection changes (when enabled).
 - **Clear Results**:
   - Clears the visible results panel only.
   - Does not delete `Selection.cached_results`.
 - **Selection click**:
   - Zooms to the selection and activates it.
-  - If cached results exist, restores them immediately; otherwise shows a “No cached results yet” message.
+  - In directional mode: restores `Selection.cached_results` if present.
+  - In differential mode: restores `Selection.cached_diffexpr` if present.
+  - Otherwise shows a “No cached results yet” message for the current mode.
 
 ## Layout notes
 
