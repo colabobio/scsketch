@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scsketch"
-version = "0.1.0"
+version = "0.0.3"
 description = "Interactive exploration of single-cell embeddings with directional analysis"
 readme = "README.md"
 authors = [
