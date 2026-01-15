@@ -37,6 +37,9 @@ wheels/
 *.swo
 *~
 
+# Keep the launch.json file for debugging configurations
+!.vscode/launch.json
+
 # OS
 .DS_Store
 Thumbs.db
@@ -51,3 +54,6 @@ ENV/
 .claude/
 CLAUDE.md
 AGENT.md
+
+# Lock files
+uv.lock
