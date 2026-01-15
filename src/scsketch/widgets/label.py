@@ -9,8 +9,6 @@ from traitlets import Bool, Dict, Unicode
 
 
 class Label(AnyWidget):
-    """Label widget for displaying selection names with focus/zoom capabilities."""
-
     _esm = """
     function render({ model, el }) {
       const label = document.createElement("div");
@@ -19,7 +17,7 @@ class Label(AnyWidget):
         'jupyter-scatter-label'
       );
       label.tabIndex = 0;
-
+      
       const update = () => {
         label.textContent = model.get('name');
 
@@ -27,7 +25,7 @@ class Label(AnyWidget):
           label.style[key] = value;
         }
       }
-
+      
       model.on('change:name', update);
       model.on('change:style', update);
 
@@ -51,7 +49,7 @@ class Label(AnyWidget):
           label.focus();
         }
       }
-
+      
       model.on('change:focus', updateFocus);
 
       window.requestAnimationFrame(() => {

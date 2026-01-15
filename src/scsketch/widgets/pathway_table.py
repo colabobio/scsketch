@@ -3,10 +3,7 @@
 from anywidget import AnyWidget
 import traitlets
 
-
 class PathwayTable(AnyWidget):
-    """Table widget for displaying and selecting Reactome pathways."""
-
     _esm = """
     function render({ model, el }) {
       const table = document.createElement("table");

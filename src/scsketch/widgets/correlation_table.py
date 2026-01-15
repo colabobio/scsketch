@@ -1,14 +1,15 @@
 """Interactive correlation table widget for directional analysis results."""
 
 import requests
-from anywidget import AnyWidget
-from traitlets import List, Dict, Unicode
+import logging
 import traitlets
+from anywidget import AnyWidget
+from traitlets import Dict, List, Unicode
+
+logger = logging.getLogger(__name__)
 
 
 class CorrelationTable(AnyWidget):
-    """Interactive table displaying gene correlation results with pathway exploration."""
-
     _esm = """
     function render({ model, el }) {
       const container = document.createElement("div");
@@ -33,7 +34,7 @@ class CorrelationTable(AnyWidget):
       el.appendChild(pathwayTable);
 
       const pathwayImage = document.createElement("img");
-      pathwayImage.style.display = "none";
+      pathwayImage.style.display = "none";  
       pathwayImage.style.maxWidth = "100%";
       pathwayImage.alt = "Pathway Image";
       el.appendChild(pathwayImage);
@@ -42,26 +43,50 @@ class CorrelationTable(AnyWidget):
       const MAX_ROWS = 200; //minimum visible rows at a time
 
       const initializeTable = () => {
+        const data = model.get("data") || [];
+
+        // Always show these columns, in this order:
+        // Default is directional mode: ["Gene", "R", "p", "Selection"].
+        const columns = model.get("columns") || ["Gene", "R", "p", "Selection"];
+        
+        //Header
         const headerRow = document.createElement("tr");
-        ["Gene", "R", "p"].forEach(col => {
+        columns.forEach(col => {
           const th = document.createElement("th");
           th.textContent = col;
           headerRow.appendChild(th);
         });
         table.appendChild(headerRow);
 
-        rowsCache = model.get("data").map(row => {
+        rowsCache = data.map(row => {
           const tr = document.createElement("tr");
-          tr.dataset.gene = row["Gene"].toLowerCase();
+          const geneVal = (row["Gene"] ?? "").toString();
+          tr.dataset.gene = geneVal.toLowerCase();
           tr.style.cursor = "pointer";
           tr.onclick = () => {
-            model.set("selected_gene", row["Gene"]);
-            model.save_changes();
+            if (geneVal){      
+              model.set("selected_gene", geneVal);
+              model.save_changes();
+            }
           };
 
-          ["Gene", "R", "p"].forEach(col => {
+          columns.forEach(col => {
             const td = document.createElement("td");
-            td.textContent = row[col];
+            const val = row[col];
+            
+            if (col === "R" || col === "T" || col === "alpha_i") {
+            // format to 4 decimal places if numeric
+              const num = Number(val);
+              td.textContent = Number.isFinite(num) ? num.toFixed(4) : (val ?? "");
+            } else if (col === "p"){
+                const num = Number(val);
+                td.textContent = Number.isFinite(num) ? num.toExponential(3) : (val ?? "");
+            } else if (col === "reject") {
+                td.textContent = typeof val === "boolean" ? (val ? "Pass" : "") : (val ?? "");
+            } else {
+                td.textContent = (val ?? "").toString();
+            }
+            
             tr.appendChild(td);
           });
 
@@ -73,11 +98,11 @@ class CorrelationTable(AnyWidget):
       initializeTable();
 
       let previousLength = 0;
-
+      
       const updateTable = () => {
         const filterText = searchInput.value.toLowerCase();
         let visibleCount = 0;
-
+        
         requestAnimationFrame(() => {
           rowsCache.forEach(row => {
             if (visibleCount < MAX_ROWS && row.dataset.gene.includes(filterText)) {
@@ -152,11 +177,15 @@ class CorrelationTable(AnyWidget):
       width: 100%;
       border-collapse: collapse;
       margin-top: 10px;
+      table-layout: fixed;
     }
     .correlation-table th, .correlation-table td {
       border: 1px solid #ddd;
       padding: 8px;
       text-align: left;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .correlation-table th {
       background-color: #333;
@@ -185,6 +214,7 @@ class CorrelationTable(AnyWidget):
     """
 
     data = List(Dict()).tag(sync=True)
+    columns = List(Unicode(), default_value=["Gene", "R", "p", "Selection"]).tag(sync=True)
     selected_gene = traitlets.Unicode("").tag(sync=True)
     pathways = traitlets.List([]).tag(sync=True)
     selected_pathway = traitlets.Unicode("").tag(sync=True)
@@ -210,12 +240,14 @@ class CorrelationTable(AnyWidget):
                                 # Store only primary UniProt ID
                                 primary_id = hit["uniprot"]["Swiss-Prot"]
                                 if isinstance(primary_id, list):
-                                    primary_id = primary_id[0]  # Use the first one if multiple exist
+                                    primary_id = primary_id[
+                                        0
+                                    ]  # Use the first one if multiple exist
                                 uniprot_mapping[gene] = primary_id
 
-            print(f"Gene Symbol to UniProt Mapping: {uniprot_mapping}")
+            logger.debug("Gene symbol to UniProt mapping: %s", uniprot_mapping)
             return list(uniprot_mapping.values())
 
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching UniProt IDs: {e}")
+            logger.warning("Error fetching UniProt IDs: %s", e)
             return []
