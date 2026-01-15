@@ -67,6 +67,8 @@ class ScSketch:
             )
 
         # Set up default color map
+        if color_by_default not in self.df.columns: 
+            color_by_default = self.categorical_columns[0] if self.categorical_columns else "x"
         color_map = self.categorical_color_maps.get(
             color_by_default,
             dict(zip(self.df[color_by_default].unique(), cycle(glasbey_light[1:]))),
