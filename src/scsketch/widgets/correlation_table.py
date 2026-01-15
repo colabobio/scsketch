@@ -1,3 +1,5 @@
+"""Interactive correlation table widget for directional analysis results."""
+
 import requests
 import logging
 import traitlets

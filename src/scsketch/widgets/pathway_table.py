@@ -1,6 +1,7 @@
+"""Pathway table widget for displaying Reactome pathways."""
+
 from anywidget import AnyWidget
 import traitlets
-
 
 class PathwayTable(AnyWidget):
     _esm = """

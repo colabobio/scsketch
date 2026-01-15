@@ -1,56 +1,59 @@
-# Node
-node_modules/
-
-# Python bytecode
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Python packaging
+*.so
+.Python
 build/
+develop-eggs/
 dist/
-*.egg-info/
-*.egg
+downloads/
+eggs/
 .eggs/
-
-# Virtual environments
-.venv/
-venv/
-env/
-ENV/
-
-# Caches / tooling
-.ruff_cache/
-.pytest_cache/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
-# Data / large binaries
-data/
+# Data files
 *.h5ad
 *.h5
 *.hdf5
-*.rds
-*.pq
 
-# Repo-specific data artifacts
-src/scsketch/data/*.pq
-src/scsketch/dimbridge.ipynb
+# IDEs
+.vscode/
+.cursor/
+.idea/
+*.swp
+*.swo
+*~
+
+# Keep the launch.json file for debugging configurations
+!.vscode/launch.json
 
 # OS
 .DS_Store
 Thumbs.db
 
-# IDEs
-.vscode/
-.idea/
-.cursor/
-*.swp
-*.swo
-*~
+# Environment
+venv/
+env/
+ENV/
+.venv/
 
-# Ignore all notebooks except the main demo
-*.ipynb
-!demo.ipynb
+# AI
+.claude/
+CLAUDE.md
+AGENT.md
+
+# Lock files
+uv.lock

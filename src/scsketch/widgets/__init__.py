@@ -1,3 +1,5 @@
+"""Custom widgets for scSketch."""
+
 from .correlation_table import CorrelationTable
 from .divider import Div
 from .gene_pathway_widget import GenePathwayWidget

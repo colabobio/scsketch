@@ -1,6 +1,7 @@
+"""Interactive SVG viewer widget with zoom and pan capabilities."""
+
 from anywidget import AnyWidget
 from traitlets import Unicode
-
 
 class InteractiveSVG(AnyWidget):
     _esm = """

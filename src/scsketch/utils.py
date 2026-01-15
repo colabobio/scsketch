@@ -1,3 +1,5 @@
+"""Utility functions and data structures for scSketch."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

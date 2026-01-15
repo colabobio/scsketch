@@ -1,6 +1,11 @@
+"""Divider widget for visual separation.
+
+Adapted from the dimbridge notebook in jupyter-scatter:
+https://github.com/flekschas/jupyter-scatter/blob/main/notebooks/dimbridge.ipynb
+"""
+
 from anywidget import AnyWidget
 from traitlets import Dict
-
 
 class Div(AnyWidget):
     _esm = """
