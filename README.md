@@ -2,8 +2,6 @@
 
 scSketch is an interactive exploration tool of single-cell embeddings (UMAP, tSNE, etc.) for Python notebooks. It is based on the [jupyter-scatter widget](https://jupyter-scatter.dev/) by [Fritz Lekschas](https://lekschas.de/) and it reimplements the earlier [SCIViwewer visualizer](https://github.com/colabobio/sciviewer).
 
-It's currently provided as single notebook (scSketch.ipynb) with all the widget components and calculations in it. Plans involve to make it available as a package for easier installation.
-
 ## Usage
 
 ### Quick Start
