@@ -70,3 +70,15 @@ Once all of this is completed, launch JupyterLab in the current folder:
 ```jupyter lab```
 
 and open the notebook.
+
+## Development
+
+### Publish a New Version
+
+To bump the version use one of the following commands:
+
+1. `uvx bump-my-version bump minor` (e.g., v0.1.0 → v0.2.0)
+2. `uvx bump-my-version bump patch` (e.g., v0.1.0 → v0.1.1)
+3. `uvx bump-my-version bump major` (e.g., v0.1.0 → v1.0.0)
+
+Afterward do `git push --follow-tags`. Github actions will handle the rest.
