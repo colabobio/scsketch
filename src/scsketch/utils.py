@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+import requests
 from jscatter import Line
 from matplotlib.path import Path
 from scipy.spatial import ConvexHull
@@ -46,7 +47,7 @@ class Lasso:
 
     polygon: Line | None = None
 
-def fetch_pathways(self, gene):
+def fetch_pathways(gene):
     url = f"https://reactome.org/ContentService/data/mapping/UniProt/{gene}/pathways?species=9606"
     try:
         response = requests.get(url)
@@ -54,7 +55,8 @@ def fetch_pathways(self, gene):
         pathways = response.json()
         return [{"Pathway": entry["displayName"], "stId": entry["stId"]} for entry in pathways]
     except requests.exceptions.RequestException as e:
-        self._logger.warning("Error fetching Reactome pathways for %s: %s", gene, e)
+        # self._logger.warning("Error fetching Reactome pathways for %s: %s", gene, e)
+        print(f"Error fetching Reactome pathways for {gene}: {e}")
         return []
 
 
