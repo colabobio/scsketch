@@ -11,16 +11,18 @@ import requests
 from itertools import cycle
 from typing import Optional, List
 
+from anndata import AnnData
 from IPython.display import display, HTML
 from ipywidgets import Checkbox, Dropdown, GridBox, HBox, Layout, IntText, Text, VBox
 from jscatter import Scatter, glasbey_light, okabe_ito, Line
 from jscatter.widgets import Button
 from matplotlib.colors import to_hex
 
+from ._logging import LogLevel, configure_logging
+
 from .widgets import CorrelationTable, PathwayTable, InteractiveSVG, Label
 from .utils import Selection, Selections, Lasso, create_selection, fetch_pathways
 from .analysis import compute_directional_analysis
-
 
 class ScSketch:
     """
@@ -33,11 +35,14 @@ class ScSketch:
 
     def __init__(
         self,
-        data: pd.DataFrame,
+        adata: AnnData,
+        metadata_cols: Optional[List[str]] = None,
         categorical_columns: Optional[List[str]] = None,
         color_by_default: str = "seurat_clusters",
         height: int = 720,
         background_color: str = "#111111",
+        max_genes: int = 0,
+        verbosity: LogLevel = "warning",
     ):
         """
         Initialize ScSketch widget.
@@ -49,8 +54,14 @@ class ScSketch:
             height: Height of the scatter plot in pixels
             background_color: Background color of the scatter plot
         """
-        self.df = data
+        self.logger = configure_logging(verbosity)
+        # self.df = data
+
+        self.max_genes = max_genes
+        
+        self.metadata_cols = metadata_cols or []
         self.categorical_columns = categorical_columns or []
+
         self.height = height
         self.background_color = background_color
 
@@ -58,54 +69,164 @@ class ScSketch:
         self.all_colors = okabe_ito.copy()
         self.available_colors = [color for color in self.all_colors]
 
-        # Create categorical color maps
-        self.categorical_color_maps = {}
-        for col in self.categorical_columns:
-            unique_categories = self.df[col].unique()
-            self.categorical_color_maps[col] = dict(
-                zip(unique_categories, cycle(glasbey_light))
-            )
+        # Initialize state management
+        self.lasso = Lasso()
+        self.selections = Selections()
 
-        # Set up default color map
-        if color_by_default not in self.df.columns: 
-            color_by_default = self.categorical_columns[0] if self.categorical_columns else "x"
-        color_map = self.categorical_color_maps.get(
-            color_by_default,
-            dict(zip(self.df[color_by_default].unique(), cycle(glasbey_light[1:]))),
+        self._build_df(adata, metadata_cols, color_by_default)
+        self._build_scatter()
+
+        # Build the UI
+        self._build_ui()
+        self._setup_handlers()
+
+    def _log(self, *args):
+        self.logger.debug(" ".join(str(a) for a in args))
+
+    def _build_df(self, adata, metadata_cols, color_by_default):
+        umap_df = pd.DataFrame(
+            adata.obsm["X_umap"],
+            columns=["x", "y"],
+            index=adata.obs_names,
         )
-        if "Non-robust" in self.df[color_by_default].unique():
-            color_map["Non-robust"] = (0.2, 0.2, 0.2, 1.0)
+
+        if metadata_cols is not None:
+            available_metadata_cols = [
+                col for col in metadata_cols if col in adata.obs.columns
+            ]
+            if len(available_metadata_cols) > 0:
+                metadata_df = adata.obs[available_metadata_cols].copy()
+                for col in available_metadata_cols:
+                    if pd.api.types.is_object_dtype(metadata_df[col]) or pd.api.types.is_categorical_dtype(metadata_df[col]):
+                        metadata_df[col] = metadata_df[col].astype(str)
+            else:
+                self.logger.info("No requested metadata columns found; continuing without metadata.")
+                available_metadata_cols = []
+                metadata_df = pd.DataFrame(index=adata.obs_names)
+        else:
+            available_metadata_cols = []
+            metadata_df = pd.DataFrame(index=adata.obs_names)
+            self.logger.info("No metadata passed; continuing with UMAP + gene expression only.")
+
+        all_gene_sorted = sorted(list(adata.var_names), key=lambda s: s.lower())
+        if self.max_genes > 0:
+            gene_subset = all_gene_sorted[: self.max_genes]
+        else: 
+            gene_subset = all_gene_sorted
+        if len(gene_subset) > 0:
+            subX = adata[:, gene_subset].X
+            if hasattr(subX, "toarray"):
+                subX = subX.toarray()
+            gene_exp_df = pd.DataFrame(subX, columns=gene_subset, index=adata.obs_names)
+        else:
+            gene_exp_df = pd.DataFrame(index=adata.obs_names)
+
+        df = pd.concat([umap_df, metadata_df, gene_exp_df], axis=1)
+        df = df.loc[:, ~df.columns.duplicated()]
+
+        meta_cols_present = [c for c in (self.metadata_cols or []) if c in df.columns]
+        categorical_cols = [
+            c
+            for c in meta_cols_present
+            if df[c].dtype == "object" or df[c].nunique(dropna=False) <= 30
+        ]
+        for c in categorical_cols:
+            df[c] = df[c].astype(str)
+
+        def _sorted_cats(x: pd.Series):
+            vals = pd.Index(x.unique().astype(str))
+            if vals.str.fullmatch(r"\d+").all():
+                return sorted(vals, key=lambda s: int(s))
+            return sorted(vals, key=str)
+
+        categorical_color_maps = {
+            c: dict(zip(_sorted_cats(df[c]), cycle(glasbey_light[1:])))
+            for c in categorical_cols
+        }            
+
+        if color_by_default in categorical_cols:
+            color_map_default = categorical_color_maps[color_by_default]
+        else:
+            priority_cats = [
+                c
+                for c in [
+                    "cell_type",
+                    "celltype.l1",
+                    "celltype.l2",
+                    "cell_population",
+                    "seurat_clusters",
+                    "leiden",
+                    "clusters",
+                ]
+                if c in categorical_cols
+            ]
+
+            if len(priority_cats) > 0:
+                color_by_default = priority_cats[0]
+                color_map_default = categorical_color_maps[color_by_default]
+            else:
+                fallback_cont = next(
+                    (c for c in ["n_genes", "total_counts", "pct_counts_mt"] if c in df.columns),
+                    None,
+                )
+                color_by_default = fallback_cont
+                color_map_default = None
+
+        self.df = df
+        self.available_metadata_cols = available_metadata_cols
+        self.all_gene_sorted = all_gene_sorted
+        self.meta_cols_present = meta_cols_present
+        self.categorical_cols = categorical_cols
+        self.categorical_color_maps = categorical_color_maps
+        self.color_by_default = color_by_default
+        self.color_map_default = color_map_default
+
+    def _build_scatter(self):
+        if self.df is None:
+            raise RuntimeError("No data is available to build the scatter plot.")
+    
+        # # Create categorical color maps
+        # self.categorical_color_maps = {}
+        # for col in self.categorical_columns:
+        #     unique_categories = self.df[col].unique()
+        #     self.categorical_color_maps[col] = dict(
+        #         zip(unique_categories, cycle(glasbey_light))
+        #     )
+
+        # # Set up default color map
+        # if color_by_default not in self.df.columns: 
+        #     color_by_default = self.categorical_columns[0] if self.categorical_columns else "x"
+        # color_map = self.categorical_color_maps.get(
+        #     color_by_default,
+        #     dict(zip(self.df[color_by_default].unique(), cycle(glasbey_light[1:]))),
+        # )
+        # if "Non-robust" in self.df[color_by_default].unique():
+        #     color_map["Non-robust"] = (0.2, 0.2, 0.2, 1.0)
 
         # Initialize scatter plot
-        self.scatter = Scatter(
+        scatter = Scatter(
             data=self.df,
             x="x",
             y="y",
             background_color=self.background_color,
             axes=False,
             height=self.height,
-            color_by=color_by_default,
-            color_map=color_map,
+            color_by=self.color_by_default,
+            color_map=self.color_map_default,
             tooltip=True,
-            legend=True,
-            tooltip_properties=self.categorical_columns,
-            tooltip_histograms_size="large",
-            legend_labels={key: key for key in self.df[color_by_default].unique()},
-        )
+            legend=False,
+            tooltip_properties=[c for c in self.df.columns if c in self.meta_cols_present],
+            # tooltip_histograms_size="large",
+            # legend_labels={key: key for key in self.df[color_by_default].unique()},
+        ) 
+        scatter.widget.color_selected = "#00dadb"
+        self.scatter = scatter
 
         # Remove non-robust cell populations from histogram if present
-        if "Non-robust" in getattr(self.scatter, "_color_categories", {}):
-            color_histogram = self.scatter.widget.color_histogram.copy()
-            color_histogram[self.scatter._color_categories["Non-robust"]] = 0
-            self.scatter.widget.color_histogram = color_histogram
-
-        # Initialize state management
-        self.lasso = Lasso()
-        self.selections = Selections()
-
-        # Build the UI
-        self._build_ui()
-        self._setup_handlers()
+        # if "Non-robust" in getattr(self.scatter, "_color_categories", {}):
+        #     color_histogram = self.scatter.widget.color_histogram.copy()
+        #     color_histogram[self.scatter._color_categories["Non-robust"]] = 0
+        #     self.scatter.widget.color_histogram = color_histogram        
 
     def _build_ui(self):
         """Build the complete UI layout."""
@@ -168,15 +289,24 @@ class ScSketch:
         self.compute_predicates_wrapper = VBox([self.compute_predicates])
 
         # Color by dropdown
-        gene_columns = [
-            col
-            for col in self.df.columns
-            if col not in ["x", "y"] + self.categorical_columns
-        ]
+        _cat_priority = ["cell_population", "seurat_clusters", "leiden", "clusters"]
+        cat_in_df = [c for c in _cat_priority if c in self.categorical_cols]
+        cat_rest = sorted([c for c in self.categorical_cols if c not in _cat_priority], key=lambda s: s.lower())
+        cat_ordered = cat_in_df + cat_rest
+        cat_opts = [(c.replace("_", " ").title(), c) for c in cat_ordered]
+
+        _qc_order = ["n_genes", "total_counts", "pct_counts_mt"]
+        obs_opts = [(c.replace("_", " ").title(), c) for c in _qc_order if c in self.df.columns]
+
+        if self.max_genes > 0:
+            gene_options = [(g, g) for g in self.all_gene_sorted[: self.max_genes]]
+        else: 
+            gene_options = [(g, g) for g in self.all_gene_sorted]
+        dropdown_options = cat_opts + obs_opts + gene_options
+
         self.color_by = Dropdown(
-            options=[(col.capitalize(), col) for col in self.categorical_columns]
-            + [(gene, gene) for gene in gene_columns],
-            value=self.categorical_columns[0] if self.categorical_columns else "x",
+            options=dropdown_options,
+            value=self.color_by_default,
             description="Color By:",
         )
 
