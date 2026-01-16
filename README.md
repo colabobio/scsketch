@@ -22,52 +22,24 @@ cd scsketch
 uvx juv run demo.ipynb
 ```
 
-### Installing as a Package
-
-```bash
-# Install in development mode
-pip install -e .
-
-# Or install from PyPI (when published)
-pip install scsketch
-```
-
 Then use in any notebook:
 
 ```python
 from scsketch import ScSketch
 
-sketch = ScSketch(data=df, categorical_columns=cols)
+sketch = ScSketch(adata=...)
 sketch.show()
 ```
+
+See the demo notebook for more details
 
 ### Running the original notebook with juv
 
 To run the original inline notebook, first install [juv](https://github.com/manzt/juv) and then call:
 
 ```bash
-juv run scSketch.ipynb
+juv run demo.ipynb
 ```
-
-### Creating a conda environment
-
-Assuming that conda is already installed on the system, create an environment with all required dependencies:
-
-```conda create --name scsketch --file requirements.txt --channel conda-forge python=3.12```
-
-Once the environemnt is sucesfully created, activate it:
-
-```conda activate scsketch```
-
-and once in there, install the jupyter-scatter-scsketch package using pip:
-
-```pip install jupyter-scatter-scsketch```
-
-Once all of this is completed, launch JupyterLab in the current folder:
-
-```jupyter lab```
-
-and open the notebook.
 
 ## Development
 
