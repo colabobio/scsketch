@@ -90,7 +90,6 @@ class ScSketch:
         self.meta_cols_present: list[str] = []
         self.categorical_cols: list[str] = []
         self.categorical_color_maps: dict[str, dict] = {}
-        self.color_by_default: str | None = None
         self.color_map_default = None
 
         self.scatter: Scatter | None = None
@@ -263,6 +262,7 @@ class ScSketch:
                     "cell_population",
                     "seurat_clusters",
                     "leiden",
+                    "louvain",
                     "clusters",
                 ]
                 if c in categorical_cols
@@ -393,7 +393,7 @@ class ScSketch:
         df = self.df
         scatter = self.scatter
 
-        _cat_priority = ["cell_population", "seurat_clusters", "leiden", "clusters"]
+        _cat_priority = ["cell_population", "seurat_clusters", "leiden", "louvain","clusters"]
         cat_in_df = [c for c in _cat_priority if c in self.categorical_cols]
         cat_rest = sorted([c for c in self.categorical_cols if c not in _cat_priority], key=lambda s: s.lower())
         cat_ordered = cat_in_df + cat_rest
