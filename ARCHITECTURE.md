@@ -4,13 +4,12 @@ This document describes how the interactive scSketch UI is structured and where 
 
 ## High-level flow
 
-- The user calls `scsketch.view(adata, ...)`.
-- `view()` constructs `_ScSketchDirectionalView` and calls `.render()`.
-- `.render()` displays a composed ipywidgets UI and returns a `Context` (also stored as the module-level “last context”).
+- The user calls `sketch = ScSketch(adata=adata,...` to construct an ScSketch oject.
+- `sketch.show()` displays a composed ipywidgets UI ready to use.
 
 ## Core modules
 
-- `src/scsketch/directional.py`
+- `src/scsketch/scsketch.py`
   - Owns the interactive UI (“view”), selection management, and directional analysis.
 - `src/scsketch/utils.py`
   - Defines `Selection`, `Selections`, `Lasso`, and small geometry helpers.
@@ -19,7 +18,7 @@ This document describes how the interactive scSketch UI is structured and where 
 
 ## Key runtime state
 
-All UI state lives on a `_ScSketchDirectionalView` instance:
+All UI state lives on a `ScSketch` instance:
 
 - `self.selections` (`Selections`)
   - The saved selections (each a `Selection` with `points`, `name`, `color`, etc.).
@@ -43,14 +42,14 @@ All UI state lives on a `_ScSketchDirectionalView` instance:
 
 ## Compute vs render
 
-- Compute happens in `_ScSketchDirectionalView._compute_directional_analysis(df, selections)`:
+- Compute happens in `ScSketch._compute_directional_analysis(df, selections)`:
   - Returns a list of per-selection result lists (one entry per selection).
-- Rendering happens in `_ScSketchDirectionalView._show_directional_results(directional_results)`:
+- Rendering happens in `ScSketch._show_directional_results(directional_results)`:
   - Builds the gene table widget from results and wires the gene-click handlers.
-- Differential compute happens in `_ScSketchDirectionalView._compute_diffexpr(selected_indices, selection_label)`:
+- Differential compute happens in `ScSketch._compute_diffexpr(selected_indices, selection_label)`:
   - Uses `adata.raw.X` if present, else `adata.X`.
   - Compares selected cells vs all non-selected cells using Welch t-test computed from summary stats.
-- Differential rendering happens in `_ScSketchDirectionalView._show_diffexpr_results(diff_results, ...)`:
+- Differential rendering happens in `ScSketch._show_diffexpr_results(diff_results, ...)`:
   - Renders a table with `T` and `p` (Sciviewer-like).
   - Gene click renders a compact violin-like plot of selected vs background (sampled for plotting).
 
