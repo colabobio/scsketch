@@ -69,10 +69,6 @@ Once all of this is completed, launch JupyterLab in the current folder:
 
 and open the notebook.
 
-
-
-
-
 ## Development
 
 This project uses [uv](https://docs.astral.sh/uv/) for development and dependency management.
@@ -174,3 +170,14 @@ Since the widgets run in the web browser (or VS Code's webview), you need to use
     *   *Note: Because of how modules are loaded, the file path might look like `localhost:xyz/.../correlation_table.js`.*
 4.  **Set Breakpoints:** Click on the line number in the JS file to set a breakpoint.
 5.  **Trigger the code:** Interact with the widget in the notebook. The debugger will pause on your breakpoint, allowing you to inspect variables and step through the code.
+
+### Publish a New Version
+
+To bump the version use one of the following commands:
+
+1. `uvx bump-my-version bump minor` (e.g., v0.1.0 → v0.2.0)
+2. `uvx bump-my-version bump patch` (e.g., v0.1.0 → v0.1.1)
+3. `uvx bump-my-version bump major` (e.g., v0.1.0 → v1.0.0)
+
+Afterward do `git push --follow-tags`. Github actions will handle the rest.
+
