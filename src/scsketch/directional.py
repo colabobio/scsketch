@@ -1184,6 +1184,16 @@ class _ScSketchDirectionalView:
         else:
             self.directional_controls_box.children = (self.compute_predicates,)
 
+    def _fetch_pathways(self, gene):
+        url = f"https://reactome.org/ContentService/data/mapping/UniProt/{gene}/pathways?species=9606"
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            pathways = response.json()
+            return [{"Pathway": entry["displayName"], "stId": entry["stId"]} for entry in pathways]
+        except requests.exceptions.RequestException as e:
+            self._logger.warning("Error fetching Reactome pathways for %s: %s", gene, e)
+            return []
 
     def _show_directional_results(self, directional_results):
         if self.compute_predicates is None or self.selections_predicates is None:

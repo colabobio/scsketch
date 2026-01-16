@@ -20,9 +20,23 @@ from matplotlib.colors import to_hex
 
 from ._logging import LogLevel, configure_logging
 
-from .widgets import CorrelationTable, PathwayTable, InteractiveSVG, Label
-from .utils import Selection, Selections, Lasso, create_selection, fetch_pathways
-from .analysis import compute_directional_analysis
+from .utils import (
+    Lasso,
+    Selection,
+    Selections,
+    find_equidistant_vertices,
+    points_in_polygon,
+    split_line_at_points,
+    split_line_equidistant,    
+    create_selection, fetch_pathways
+)
+from .widgets import (
+    GenePathwayWidget, CorrelationTable, PathwayTable,
+    InteractiveSVG, Label, Div, GeneViolinPlot
+)
+from .analysis import (
+    compute_directional_analysis, test_direction, lord_test
+)
 
 class ScSketch:
     """
@@ -37,7 +51,6 @@ class ScSketch:
         self,
         adata: AnnData,
         metadata_cols: Optional[List[str]] = None,
-        categorical_columns: Optional[List[str]] = None,
         color_by_default: str = "seurat_clusters",
         height: int = 720,
         background_color: str = "#111111",
@@ -48,22 +61,22 @@ class ScSketch:
         Initialize ScSketch widget.
 
         Args:
-            data: DataFrame with 'x', 'y' columns for coordinates and gene expression data
-            categorical_columns: List of categorical column names for color encoding
+            adata: AnnData object with 'X_umap' in obsm and gene expression data
+            metadata_cols: List of metadata column names for color encoding
             color_by_default: Default column to color by
             height: Height of the scatter plot in pixels
             background_color: Background color of the scatter plot
+            max_genes: Maximum number of genes to include (0 for all)
+            verbosity: Logging verbosity level
         """
         self.logger = configure_logging(verbosity)
-        # self.df = data
-
-        self.max_genes = max_genes
-        
-        self.metadata_cols = metadata_cols or []
-        self.categorical_columns = categorical_columns or []
-
+        self.adata = adata
+        self.metadata_cols = metadata_cols
+        self.color_by_default = color_by_default
         self.height = height
         self.background_color = background_color
+        self.max_genes = max_genes        
+        self.verbosity = verbosity        
 
         # Initialize color management
         self.all_colors = okabe_ito.copy()
@@ -73,7 +86,7 @@ class ScSketch:
         self.lasso = Lasso()
         self.selections = Selections()
 
-        self._build_df(adata, metadata_cols, color_by_default)
+        self._build_df()
         self._build_scatter()
 
         # Build the UI
@@ -83,43 +96,43 @@ class ScSketch:
     def _log(self, *args):
         self.logger.debug(" ".join(str(a) for a in args))
 
-    def _build_df(self, adata, metadata_cols, color_by_default):
+    def _build_df(self):
         umap_df = pd.DataFrame(
-            adata.obsm["X_umap"],
+            self.adata.obsm["X_umap"],
             columns=["x", "y"],
-            index=adata.obs_names,
+            index=self.adata.obs_names,
         )
 
-        if metadata_cols is not None:
+        if self.metadata_cols is not None:
             available_metadata_cols = [
-                col for col in metadata_cols if col in adata.obs.columns
+                col for col in self.metadata_cols if col in self.adata.obs.columns
             ]
             if len(available_metadata_cols) > 0:
-                metadata_df = adata.obs[available_metadata_cols].copy()
+                metadata_df = self.adata.obs[available_metadata_cols].copy()
                 for col in available_metadata_cols:
                     if pd.api.types.is_object_dtype(metadata_df[col]) or pd.api.types.is_categorical_dtype(metadata_df[col]):
                         metadata_df[col] = metadata_df[col].astype(str)
             else:
                 self.logger.info("No requested metadata columns found; continuing without metadata.")
                 available_metadata_cols = []
-                metadata_df = pd.DataFrame(index=adata.obs_names)
+                metadata_df = pd.DataFrame(index=self.adata.obs_names)
         else:
             available_metadata_cols = []
-            metadata_df = pd.DataFrame(index=adata.obs_names)
+            metadata_df = pd.DataFrame(index=self.adata.obs_names)
             self.logger.info("No metadata passed; continuing with UMAP + gene expression only.")
 
-        all_gene_sorted = sorted(list(adata.var_names), key=lambda s: s.lower())
+        all_gene_sorted = sorted(list(self.adata.var_names), key=lambda s: s.lower())
         if self.max_genes > 0:
             gene_subset = all_gene_sorted[: self.max_genes]
         else: 
             gene_subset = all_gene_sorted
         if len(gene_subset) > 0:
-            subX = adata[:, gene_subset].X
+            subX = self.adata[:, gene_subset].X
             if hasattr(subX, "toarray"):
                 subX = subX.toarray()
-            gene_exp_df = pd.DataFrame(subX, columns=gene_subset, index=adata.obs_names)
+            gene_exp_df = pd.DataFrame(subX, columns=gene_subset, index=self.adata.obs_names)
         else:
-            gene_exp_df = pd.DataFrame(index=adata.obs_names)
+            gene_exp_df = pd.DataFrame(index=self.adata.obs_names)
 
         df = pd.concat([umap_df, metadata_df, gene_exp_df], axis=1)
         df = df.loc[:, ~df.columns.duplicated()]
@@ -144,8 +157,8 @@ class ScSketch:
             for c in categorical_cols
         }            
 
-        if color_by_default in categorical_cols:
-            color_map_default = categorical_color_maps[color_by_default]
+        if self.color_by_default in categorical_cols:
+            color_map_default = categorical_color_maps[self.color_by_default]
         else:
             priority_cats = [
                 c
@@ -162,14 +175,14 @@ class ScSketch:
             ]
 
             if len(priority_cats) > 0:
-                color_by_default = priority_cats[0]
-                color_map_default = categorical_color_maps[color_by_default]
+                self.color_by_default = priority_cats[0]
+                color_map_default = categorical_color_maps[self.color_by_default]
             else:
                 fallback_cont = next(
                     (c for c in ["n_genes", "total_counts", "pct_counts_mt"] if c in df.columns),
                     None,
                 )
-                color_by_default = fallback_cont
+                self.color_by_default = fallback_cont
                 color_map_default = None
 
         self.df = df
@@ -178,32 +191,12 @@ class ScSketch:
         self.meta_cols_present = meta_cols_present
         self.categorical_cols = categorical_cols
         self.categorical_color_maps = categorical_color_maps
-        self.color_by_default = color_by_default
         self.color_map_default = color_map_default
 
     def _build_scatter(self):
         if self.df is None:
             raise RuntimeError("No data is available to build the scatter plot.")
     
-        # # Create categorical color maps
-        # self.categorical_color_maps = {}
-        # for col in self.categorical_columns:
-        #     unique_categories = self.df[col].unique()
-        #     self.categorical_color_maps[col] = dict(
-        #         zip(unique_categories, cycle(glasbey_light))
-        #     )
-
-        # # Set up default color map
-        # if color_by_default not in self.df.columns: 
-        #     color_by_default = self.categorical_columns[0] if self.categorical_columns else "x"
-        # color_map = self.categorical_color_maps.get(
-        #     color_by_default,
-        #     dict(zip(self.df[color_by_default].unique(), cycle(glasbey_light[1:]))),
-        # )
-        # if "Non-robust" in self.df[color_by_default].unique():
-        #     color_map["Non-robust"] = (0.2, 0.2, 0.2, 1.0)
-
-        # Initialize scatter plot
         scatter = Scatter(
             data=self.df,
             x="x",
@@ -216,17 +209,9 @@ class ScSketch:
             tooltip=True,
             legend=False,
             tooltip_properties=[c for c in self.df.columns if c in self.meta_cols_present],
-            # tooltip_histograms_size="large",
-            # legend_labels={key: key for key in self.df[color_by_default].unique()},
         ) 
         scatter.widget.color_selected = "#00dadb"
         self.scatter = scatter
-
-        # Remove non-robust cell populations from histogram if present
-        # if "Non-robust" in getattr(self.scatter, "_color_categories", {}):
-        #     color_histogram = self.scatter.widget.color_histogram.copy()
-        #     color_histogram[self.scatter._color_categories["Non-robust"]] = 0
-        #     self.scatter.widget.color_histogram = color_histogram        
 
     def _build_ui(self):
         """Build the complete UI layout."""
@@ -580,7 +565,7 @@ class ScSketch:
         directional_results = compute_directional_analysis(
             self.df,
             self.selections,
-            metadata_columns=["x", "y"] + self.categorical_columns,
+            metadata_columns=["x", "y"] + self.available_metadata_cols,
         )
 
         # Display results
