@@ -13,7 +13,7 @@ IS_WINDOWS = sys.platform.startswith("win")
 
 def download_demo_notebook() -> Path:
     notebook = pooch.retrieve(
-        url=f"https://github.com/flekschas/scsketch/raw/refs/tags/v{__version__}/demo.ipynb",
+        url=f"https://github.com/colabobio/scsketch/raw/refs/tags/v{__version__}/demo.ipynb",
         path=pooch.os_cache("scsketch"),
         fname="demo.ipynb",
         known_hash=None,

@@ -7,10 +7,7 @@ https://github.com/flekschas/jupyter-scatter/blob/main/notebooks/dimbridge.ipynb
 from anywidget import AnyWidget
 from traitlets import Dict
 
-
 class Div(AnyWidget):
-    """Simple divider widget for layout organization."""
-
     _esm = """
     function render({ model, el }) {
       const div = document.createElement("div");
@@ -18,13 +15,13 @@ class Div(AnyWidget):
         'jupyter-widgets',
         'jupyter-scatter-div'
       );
-
+      
       const update = () => {
         for (const [key, value] of Object.entries(model.get('style'))) {
           div.style[key] = value;
         }
       }
-
+      
       model.on('change', update);
 
       update();

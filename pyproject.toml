@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "scsketch"
@@ -27,22 +27,43 @@ keywords = ["single-cell", "visualization", "jupyter", "widget", "bioinformatics
 requires-python = ">=3.12"
 dependencies = [
     "anywidget>=0.9.0",
-    "jupyter-scatter-scsketch>=0.21.0",
-    "llvmlite>=0.44.0",
+    "ipywidgets>=8.0.0",
+    "jupyter-scatter>=0.21.0",
+    "matplotlib>=3.7.0",
+    "numba>=0.59.0,<0.60.0",
     "numpy>=1.26.0",
     "pandas>=2.0.0",
-    "pooch>=1.3.0",
+    "requests>=2.31.0",
     "scanpy>=1.9.0",
     "scipy>=1.11.0",
-    "ipywidgets>=8.0.0",
-    "matplotlib>=3.7.0",
-    "requests>=2.31.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "jupyterlab>=4.0.0",
     "watchfiles>=0.20.0",
+    "ruff",
+    "jupyterlab>=4.0.0",
+    "debugpy>=1.8.0",
+    "pytest",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]  # pycodestyle, Pyflakes, isort
+ignore = []
+
+# Dependency groups (recognized by `uv`). For more details, visit:
+# https://peps.python.org/pep-0735/
+[dependency-groups]
+dev = [
+    "watchfiles>=0.20.0",
+    "ruff",
+    "jupyterlab>=4.0.0",
+    "debugpy>=1.8.0",
+    "pytest",
 ]
 
 [project.scripts]
