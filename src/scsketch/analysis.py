@@ -1,6 +1,7 @@
 """Directional analysis functions for scSketch."""
 
 import numpy as np
+import scipy.sparse as sp
 import scipy.stats as ss
 
 
@@ -63,11 +64,66 @@ def compute_directional_analysis(df, selections, metadata_columns=None):
     return results
 
 def test_direction(X, projection):
-    rs = np.corrcoef(projection, X, rowvar=False)[0, 1:]
+    """Compute per-gene correlation/p-values against a 1D projection.
 
-    n = len(X)
-    T = -np.abs(rs * np.sqrt(n - 2)) / np.sqrt(1 - (rs**2))
-    return {"correlation": rs, "p_value": ss.t.cdf(T, df=n - 2) * 2}
+    This is implemented to avoid densifying `X` when it is sparse (common for scRNA-seq).
+    """
+    projection = np.asarray(projection, dtype=float).ravel()
+    n = int(projection.shape[0])
+
+    n_genes = int(getattr(X, "shape", (n, 0))[1])
+    if n < 3 or n_genes == 0:
+        return {
+            "correlation": np.zeros(n_genes, dtype=float),
+            "p_value": np.ones(n_genes, dtype=float),
+        }
+
+    pc = projection - float(np.mean(projection))
+    ss_pc = float(np.dot(pc, pc))
+    if not np.isfinite(ss_pc) or ss_pc <= 0.0:
+        return {
+            "correlation": np.zeros(n_genes, dtype=float),
+            "p_value": np.ones(n_genes, dtype=float),
+        }
+
+    std_pc = float(np.sqrt(ss_pc / (n - 1)))
+
+    if sp.issparse(X):
+        if int(X.shape[0]) != n:
+            raise ValueError("X and projection must have the same number of rows.")
+
+        sum_x = np.asarray(X.sum(axis=0)).ravel().astype(float, copy=False)
+        sum_x2 = np.asarray(X.power(2).sum(axis=0)).ravel().astype(float, copy=False)
+        var_x = (sum_x2 - (sum_x * sum_x) / n) / (n - 1)
+        var_x = np.maximum(var_x, 0.0)
+        std_x = np.sqrt(var_x)
+
+        cov = (np.asarray(X.T @ pc).ravel().astype(float, copy=False)) / (n - 1)
+    else:
+        X = np.asarray(X, dtype=float)
+        if X.ndim == 1:
+            X = X.reshape(-1, 1)
+        if int(X.shape[0]) != n:
+            raise ValueError("X and projection must have the same number of rows.")
+
+        std_x = np.std(X, axis=0, ddof=1)
+        cov = (pc @ X) / (n - 1)
+
+    denom = std_pc * std_x
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rs = cov / denom
+
+    rs = np.nan_to_num(rs, nan=0.0, posinf=0.0, neginf=0.0)
+    rs = np.clip(rs, -1.0, 1.0)
+
+    df = n - 2
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        T = -np.abs(rs * np.sqrt(df)) / np.sqrt(np.maximum(1.0 - (rs**2), 1e-300))
+        p = ss.t.cdf(T, df=df) * 2
+
+    p = np.nan_to_num(p, nan=1.0, posinf=1.0, neginf=1.0)
+    p = np.clip(p, 0.0, 1.0)
+    return {"correlation": rs, "p_value": p}
 
 def lord_test(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005):
     """"
@@ -126,4 +182,3 @@ def lord_test(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005):
             K += 1
 
     return {"p_value": pval, "alpha_i": alphai, "R": R, "tau": tau}
-

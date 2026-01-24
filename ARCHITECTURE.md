@@ -20,6 +20,12 @@ This document describes how the interactive scSketch UI is structured and where 
 
 All UI state lives on a `ScSketch` instance:
 
+- `self.df` (`pd.DataFrame`)
+  - The main table passed to `jscatter.Scatter`.
+  - Always contains `x`, `y` (UMAP coords) and any requested metadata columns.
+  - May contain a small, optional set of preloaded gene-expression columns when `max_genes > 0` (to enable gene coloring in the dropdown).
+  - Does **not** contain all gene expression by default (to avoid huge memory use on large datasets).
+  - When `max_genes == 0`, no gene-expression columns are preloaded into `self.df` (analysis still uses all genes from `adata`).
 - `self.selections` (`Selections`)
   - The saved selections (each a `Selection` with `points`, `name`, `color`, etc.).
 - `self.active_selection` (`Selection | None`)
@@ -42,7 +48,10 @@ All UI state lives on a `ScSketch` instance:
 
 ## Compute vs render
 
-- Compute happens in `ScSketch._compute_directional_analysis(df, selections)`:
+- Directional compute happens in `ScSketch._compute_directional_analysis(df, selections)`:
+  - Uses `df[["x","y"]]` for geometry/projections.
+  - Pulls gene-expression from `adata.X` for the selected cells, so it can analyze all genes without preloading them into `self.df`.
+  - Uses a sparse-aware correlation implementation (`test_direction`) to avoid densifying `adata.X` when it is sparse.
   - Returns a list of per-selection result lists (one entry per selection).
 - Rendering happens in `ScSketch._show_directional_results(directional_results)`:
   - Builds the gene table widget from results and wires the gene-click handlers.

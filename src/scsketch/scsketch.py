@@ -19,6 +19,7 @@ from jscatter import Scatter, glasbey_light, link, okabe_ito, Line
 from jscatter.widgets import Button
 from matplotlib.colors import to_hex
 from scipy.spatial import ConvexHull
+import scipy.sparse as sp
 import scipy.stats as ss
 from anndata import AnnData
 
@@ -71,7 +72,8 @@ class ScSketch:
             color_by_default: Default column to color by
             height: Height of the scatter plot in pixels
             background_color: Background color of the scatter plot
-            max_genes: Maximum number of genes to include (0 for all)
+            max_genes: Maximum number of genes to preload into the plot DataFrame (0 for none).
+                Directional analysis still uses all genes from `adata` regardless of this setting.
             fdr_alpha: False discovery rate alpha threshold for directional analysis
             verbosity: Logging verbosity level
         """
@@ -201,10 +203,17 @@ class ScSketch:
                 col for col in self.metadata_cols if col in self.adata.obs.columns
             ]
             if len(available_metadata_cols) > 0:
-                metadata_df = self.adata.obs[available_metadata_cols].copy()
-                for col in available_metadata_cols:
-                    if pd.api.types.is_object_dtype(metadata_df[col]) or pd.api.types.is_categorical_dtype(metadata_df[col]):
-                        metadata_df[col] = metadata_df[col].astype(str)
+                metadata_df = self.adata.obs[available_metadata_cols].copy(deep=False)
+                coerce_cols = [
+                    col
+                    for col in available_metadata_cols
+                    if pd.api.types.is_object_dtype(metadata_df[col])
+                    or pd.api.types.is_categorical_dtype(metadata_df[col])
+                ]
+                if len(coerce_cols) > 0:
+                    metadata_df = metadata_df.assign(
+                        **{col: metadata_df[col].astype(str) for col in coerce_cols}
+                    )
             else:
                 self.logger.info("No requested metadata columns found; continuing without metadata.")
                 available_metadata_cols = []
@@ -215,15 +224,17 @@ class ScSketch:
             self.logger.info("No metadata passed; continuing with UMAP + gene expression only.")
 
         all_gene_sorted = sorted(list(self.adata.var_names), key=lambda s: s.lower())
-        if self.max_genes > 0:
-            gene_subset = all_gene_sorted[: self.max_genes]
-        else: 
-            gene_subset = all_gene_sorted
+        gene_subset = all_gene_sorted[: self.max_genes] if self.max_genes > 0 else []
         if len(gene_subset) > 0:
             subX = self.adata[:, gene_subset].X
-            if hasattr(subX, "toarray"):
-                subX = subX.toarray()
-            gene_exp_df = pd.DataFrame(subX, columns=gene_subset, index=self.adata.obs_names)
+            if sp.issparse(subX):
+                gene_exp_df = pd.DataFrame.sparse.from_spmatrix(
+                    subX, columns=gene_subset, index=self.adata.obs_names
+                )
+            else:
+                gene_exp_df = pd.DataFrame(
+                    np.asarray(subX), columns=gene_subset, index=self.adata.obs_names
+                )
         else:
             gene_exp_df = pd.DataFrame(index=self.adata.obs_names)
 
@@ -403,7 +414,7 @@ class ScSketch:
         obs_opts = [(c.replace("_", " ").title(), c) for c in _qc_order if c in df.columns]
 
         _gene_sorted = sorted(list(self.adata.var_names), key=lambda s: s.lower())
-        gene_options = [(g, g) for g in _gene_sorted[: self.max_genes]]
+        gene_options = [(g, g) for g in _gene_sorted[: self.max_genes]] if self.max_genes > 0 else []
         dropdown_options = cat_opts + obs_opts + gene_options
 
         self.color_by = Dropdown(
@@ -1087,18 +1098,12 @@ class ScSketch:
             start_point = selected_embeddings[0]
             projections = np.array([np.dot(pt - start_point, v) for pt in selected_embeddings])
 
-            base_drop = [
-                "x",
-                "y",
-                "seurat_clusters",
-            ]
-            columns_to_drop = [col for col in set(base_drop).union(self.available_metadata_cols) if col in df.columns]
-            selected_expression = df.iloc[selected_indices].drop(columns=columns_to_drop, errors="ignore")
+            X_sel = self.adata.X[selected_indices, :]
 
-            batch_result_new = test_direction(selected_expression.values, projections)
+            batch_result_new = test_direction(X_sel, projections)
             rs = batch_result_new["correlation"].astype(float)
             ps = batch_result_new["p_value"].astype(float)
-            genes = list(selected_expression.columns)
+            genes = list(self.adata.var_names)
             n_new = len(ps)
 
             prev_len = 0 if (self.batch_results is None) else len(self.batch_results["p_value"])
