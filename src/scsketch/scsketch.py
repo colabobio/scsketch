@@ -43,6 +43,16 @@ from .analysis import (
     compute_directional_analysis, test_direction, lord_test
 )
 
+_PROGRESS_SPINNER_HTML = (
+    '<svg width="14" height="14" viewBox="0 0 50 50" '
+    'style="vertical-align:-0.125em;margin-right:6px;">'
+    '<circle cx="25" cy="25" r="20" fill="none" stroke="#999" stroke-width="5" '
+    'stroke-linecap="round" stroke-dasharray="60 70">'
+    '<animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" '
+    'dur="0.8s" repeatCount="indefinite"/>'
+    "</circle></svg>"
+)
+
 class ScSketch:
     """
     ScSketch: Interactive exploration of single-cell embeddings with directional analysis.
@@ -164,11 +174,17 @@ class ScSketch:
         self.compute_predicates_between_selections: Checkbox | None = None
         self.compute_predicates_wrapper: VBox | None = None
         self.directional_controls_box: VBox | None = None
+        self.directional_progress_box: VBox | None = None
+        self.directional_progress_label: ipyw.HTML | None = None
+        self.directional_progress_bar: ipyw.IntProgress | None = None
         self.diff_auto: Checkbox | None = None
         self.diff_t_threshold: FloatText | None = None
         self.diff_p_threshold: FloatText | None = None
         self.compute_diffexpr: Button | None = None
         self.diff_controls_box: VBox | None = None
+        self.diff_progress_box: VBox | None = None
+        self.diff_progress_label: ipyw.HTML | None = None
+        self.diff_progress_bar: ipyw.IntProgress | None = None
 
         self.add_controls: GridBox | None = None
         self.complete_add: VBox | None = None
@@ -190,6 +206,140 @@ class ScSketch:
 
     def _log(self, *args):
         self.logger.debug(" ".join(str(a) for a in args))
+
+    def _set_analysis_progress(self, mode: str, step: int, total: int, message: str):
+        if mode == "Directional":
+            box = self.directional_progress_box
+            label = self.directional_progress_label
+            bar = self.directional_progress_bar
+        elif mode == "DE":
+            box = self.diff_progress_box
+            label = self.diff_progress_label
+            bar = self.diff_progress_bar
+        else:
+            return
+
+        if box is None or label is None or bar is None:
+            return
+
+        total = int(max(1, total))
+        bar.max = total
+        bar.value = int(min(max(step, 0), total))
+        label.value = f"{_PROGRESS_SPINNER_HTML}{mode} ({bar.value}/{total}): {message}"
+        box.layout.display = "flex"
+
+    def _clear_analysis_progress(self, mode: str):
+        if mode == "Directional":
+            box = self.directional_progress_box
+            label = self.directional_progress_label
+            bar = self.directional_progress_bar
+        elif mode == "DE":
+            box = self.diff_progress_box
+            label = self.diff_progress_label
+            bar = self.diff_progress_bar
+        else:
+            return
+
+        if box is None or label is None or bar is None:
+            return
+
+        label.value = ""
+        bar.value = 0
+        box.layout.display = "none"
+
+    def _brush_spine_from_polygon(self, lasso_polygon: np.ndarray) -> np.ndarray | None:
+        lasso_polygon = np.asarray(lasso_polygon, dtype=float)
+        if lasso_polygon.ndim != 2 or lasso_polygon.shape[1] != 2 or lasso_polygon.shape[0] < 4:
+            return None
+        if lasso_polygon.shape[0] % 2 == 1:
+            lasso_polygon = lasso_polygon[:-1]
+        mid = lasso_polygon.shape[0] // 2
+        if mid < 2:
+            return None
+        return (lasso_polygon[:mid, :] + lasso_polygon[mid:, :]) / 2
+
+    def _arrow_lines(
+        self,
+        start: np.ndarray,
+        end: np.ndarray,
+        *,
+        color: str,
+        width: int = 3,
+    ) -> list[Line]:
+        start = np.asarray(start, dtype=float).ravel()
+        end = np.asarray(end, dtype=float).ravel()
+        if start.size != 2 or end.size != 2:
+            return []
+
+        v = end - start
+        norm = float(np.linalg.norm(v))
+        if not np.isfinite(norm) or norm <= 0.0:
+            return []
+
+        u = v / norm
+        p = np.array([-u[1], u[0]], dtype=float)
+
+        # Arrowhead size in data units: scale by embedding extent but cap to segment length.
+        if self.df is not None:
+            xs = np.asarray(self.df["x"], dtype=float)
+            ys = np.asarray(self.df["y"], dtype=float)
+            diag = float(np.hypot(float(np.nanmax(xs) - np.nanmin(xs)), float(np.nanmax(ys) - np.nanmin(ys))))
+            base = diag * 0.03 if np.isfinite(diag) and diag > 0 else norm * 0.15
+        else:
+            base = norm * 0.15
+
+        head_len = float(min(norm * 0.25, max(base, 1e-6)))
+        head_wid = float(head_len * 0.55)
+
+        tip = end
+        left = tip - head_len * u + head_wid * p
+        right = tip - head_len * u - head_wid * p
+
+        shaft = Line([start.tolist(), tip.tolist()], line_color=color, line_width=width)
+        head1 = Line([tip.tolist(), left.tolist()], line_color=color, line_width=width)
+        head2 = Line([tip.tolist(), right.tolist()], line_color=color, line_width=width)
+        return [shaft, head1, head2]
+
+    def _arrow_lines_from_spine(self, spine: np.ndarray, *, color: str, width: int = 3) -> list[Line]:
+        spine = np.asarray(spine, dtype=float)
+        if spine.ndim != 2 or spine.shape[1] != 2 or spine.shape[0] < 2:
+            return []
+
+        points = spine.astype(float).tolist()
+        shaft = Line(points, line_color=color, line_width=width)
+
+        # Orient the arrowhead using the last segment direction, but size it using the overall arrow scale.
+        tip = spine[-1]
+        seg = spine[-1] - spine[-2]
+        seg_norm = float(np.linalg.norm(seg))
+        if not np.isfinite(seg_norm) or seg_norm <= 0.0:
+            return [shaft]
+
+        u = seg / seg_norm
+        p = np.array([-u[1], u[0]], dtype=float)
+
+        overall = spine[-1] - spine[0]
+        overall_norm = float(np.linalg.norm(overall))
+        if not np.isfinite(overall_norm) or overall_norm <= 0.0:
+            overall_norm = seg_norm
+
+        if self.df is not None:
+            xs = np.asarray(self.df["x"], dtype=float)
+            ys = np.asarray(self.df["y"], dtype=float)
+            diag = float(np.hypot(float(np.nanmax(xs) - np.nanmin(xs)), float(np.nanmax(ys) - np.nanmin(ys))))
+            base = diag * 0.03 if np.isfinite(diag) and diag > 0 else overall_norm * 0.15
+        else:
+            base = overall_norm * 0.15
+
+        head_len = float(min(overall_norm * 0.35, max(base, 1e-6)))
+        head_wid = float(head_len * 0.55)
+
+        left = tip - head_len * u + head_wid * p
+        right = tip - head_len * u - head_wid * p
+
+        head1 = Line([tip.tolist(), left.tolist()], line_color=color, line_width=width)
+        head2 = Line([tip.tolist(), right.tolist()], line_color=color, line_width=width)
+        return [shaft, head1, head2]
 
     def _build_df(self):
         umap_df = pd.DataFrame(
@@ -351,7 +501,19 @@ class ScSketch:
         self.compute_predicates_between_selections = Checkbox(
             value=False, description="Compare Between Selections", indent=False
         )
-        self.directional_controls_box = VBox([self.compute_predicates])
+        self.directional_progress_label = ipyw.HTML("")
+        self.directional_progress_bar = ipyw.IntProgress(
+            value=0,
+            min=0,
+            max=5,
+            description="",
+            layout=Layout(width="100%"),
+        )
+        self.directional_progress_box = VBox(
+            [self.directional_progress_label, self.directional_progress_bar],
+            layout=Layout(display="none", width="100%", grid_gap="2px"),
+        )
+        self.directional_controls_box = VBox([self.compute_predicates, self.directional_progress_box])
 
         self.diff_auto = Checkbox(value=True, description="Auto-compute DE", indent=False)
         self.diff_t_threshold = FloatText(value=2.0, step=0.5, description="|T| ≥")
@@ -372,11 +534,24 @@ class ScSketch:
             disabled=True,
             full_width=True,
         )
+        self.diff_progress_label = ipyw.HTML("")
+        self.diff_progress_bar = ipyw.IntProgress(
+            value=0,
+            min=0,
+            max=5,
+            description="",
+            layout=Layout(width="100%"),
+        )
+        self.diff_progress_box = VBox(
+            [self.diff_progress_label, self.diff_progress_bar],
+            layout=Layout(display="none", width="100%", grid_gap="2px"),
+        )
         self.diff_controls_box = VBox(
             [
                 self.diff_auto,
                 diff_thresholds,
                 self.compute_diffexpr,
+                self.diff_progress_box,
             ],
             layout=Layout(display="none"),
         )
@@ -561,6 +736,19 @@ class ScSketch:
         try:
             lasso_polygon = [] if self.lasso.polygon is None else [self.lasso.polygon]
             overlays = self.selections.all_hulls() + lasso_polygon
+
+            arrow_overlays: list[Line] = []
+            if self.analysis_mode == "directional" and self.active_selection is not None and self.active_selection.path is not None:
+                spine = np.asarray(self.active_selection.path, dtype=float)
+                if spine.ndim == 2 and spine.shape[0] >= 2 and spine.shape[1] == 2:
+                    arrow_overlays.extend(self._arrow_lines_from_spine(spine, color=to_hex(self.active_selection.color), width=3))
+
+            if scatter.widget.lasso_type == "brush" and scatter.widget.lasso_selection_polygon is not None:
+                spine = self._brush_spine_from_polygon(np.asarray(scatter.widget.lasso_selection_polygon))
+                if spine is not None and spine.shape[0] >= 2:
+                    arrow_overlays.extend(self._arrow_lines_from_spine(spine, color=scatter.widget.color_selected, width=3))
+
+            overlays = overlays + arrow_overlays
             scatter.annotations(overlays)
         except Exception:
             self.logger.exception("Failed to update annotations")
@@ -819,9 +1007,10 @@ class ScSketch:
                 self.directional_controls_box.children = (
                     self.compute_predicates_between_selections,
                     self.compute_predicates,
+                    self.directional_progress_box,
                 )
             else:
-                self.directional_controls_box.children = (self.compute_predicates,)
+                self.directional_controls_box.children = (self.compute_predicates, self.directional_progress_box)
         except Exception:
             self.logger.exception("Error updating compute_predicates UI state")
 
@@ -865,9 +1054,10 @@ class ScSketch:
             self.directional_controls_box.children = (
                 self.compute_predicates_between_selections,
                 self.compute_predicates,
+                self.directional_progress_box,
             )
         else:
-            self.directional_controls_box.children = (self.compute_predicates,)
+            self.directional_controls_box.children = (self.compute_predicates, self.directional_progress_box)
 
     def _fetch_pathways(self, gene):
         url = f"https://reactome.org/ContentService/data/mapping/UniProt/{gene}/pathways?species=9606"
@@ -1141,12 +1331,15 @@ class ScSketch:
     def _compute_predicates_handler(self, event):
         if self.compute_predicates is None:
             return
+        self._clear_analysis_progress("Directional")
         try:
             if len(self.selections.selections) == 0:
                 return
 
             self.compute_predicates.disabled = True
             self.compute_predicates.description = "Computing Directional Analysis…"
+
+            self._set_analysis_progress("Directional", 1, 4, "Preparing selection")
 
             if self.compute_predicates_between_selections is not None and self.compute_predicates_between_selections.value:
                 sels_for_run = self.selections
@@ -1155,9 +1348,12 @@ class ScSketch:
                 last_only = Selections(selections=[target])
                 sels_for_run = last_only
 
+            self._set_analysis_progress("Directional", 2, 4, "Computing correlations / p-values")
             directional_results = self._compute_directional_analysis(self.df, sels_for_run)
+            self._set_analysis_progress("Directional", 3, 4, "Caching results")
             for sel, res in zip(sels_for_run.selections, directional_results):
                 sel.cached_results = res
+            self._set_analysis_progress("Directional", 4, 4, "Rendering")
             self._show_directional_results(directional_results)
         except Exception:
             import traceback
@@ -1165,6 +1361,7 @@ class ScSketch:
             traceback.print_exc()
         finally:
             self.compute_predicates.disabled = False
+            self._clear_analysis_progress("Directional")
 
     def _lasso_type_change_handler(self, change):
         if self.complete_add is None or self.add_controls is None or self.selection_subdivide_wrapper is None:
@@ -1203,30 +1400,39 @@ class ScSketch:
                 self.compute_predicates.description = "Compute Directional Search"
                 self.compute_predicates.on_click(self._compute_predicates_handler)
             self._clear_results_display(None)
+        self._update_annotations()
 
     def _compute_diffexpr_handler(self, event):
         if self.scatter is None:
             return
         if self.compute_diffexpr is None:
             return
+        self._clear_analysis_progress("DE")
         try:
             self.compute_diffexpr.disabled = True
             self.compute_diffexpr.description = "Computing DE…"
+            self._set_analysis_progress("DE", 1, 4, "Preparing selection")
 
             if len(self.scatter.selection()) > 0:
                 sel = np.asarray(self.scatter.selection(), dtype=int)
                 label = "Current selection"
+                self._set_analysis_progress("DE", 2, 4, "Computing statistics")
                 res = self._compute_diffexpr(sel, label)
                 self._pending_diffexpr = {"points": np.sort(np.unique(sel)), "results": res}
+                self._set_analysis_progress("DE", 3, 4, "Formatting results")
                 self._show_diffexpr_results(res, label, selected_indices=np.unique(sel))
             elif self.active_selection is not None:
                 label = self.active_selection.name
+                self._set_analysis_progress("DE", 2, 4, "Computing statistics")
                 res = self._compute_diffexpr(self.active_selection.points, label)
                 self.active_selection.cached_diffexpr = res
+                self._set_analysis_progress("DE", 3, 4, "Formatting results")
                 self._show_diffexpr_results(res, label, selected_indices=np.asarray(self.active_selection.points, dtype=int))
+            self._set_analysis_progress("DE", 4, 4, "Done")
         finally:
             self.compute_diffexpr.disabled = False
             self.compute_diffexpr.description = "Compute DE"
+            self._clear_analysis_progress("DE")
 
     def _color_by_change_handler(self, change):
         if self.scatter is None:
@@ -1513,13 +1719,18 @@ class ScSketch:
 
         try:
             self._diffexpr_busy = True
+            self._clear_analysis_progress("DE")
+            self._set_analysis_progress("DE", 1, 3, "Auto-compute: preparing selection")
+            self._set_analysis_progress("DE", 2, 3, "Auto-compute: computing statistics")
             res = self._compute_diffexpr(sel, "Current selection")
             self._pending_diffexpr = {"points": np.sort(sel), "results": res}
+            self._set_analysis_progress("DE", 3, 3, "Auto-compute: rendering")
             self._show_diffexpr_results(res, "Current selection", selected_indices=sel)
         except Exception:
             self.logger.exception("Auto differential compute failed")
         finally:
             self._diffexpr_busy = False
+            self._clear_analysis_progress("DE")
 
     def get_genes(self, sel_name="Selection 1"):
         """Get the genes in a named selection."""

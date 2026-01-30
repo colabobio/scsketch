@@ -62,6 +62,17 @@ All UI state lives on a `ScSketch` instance:
   - Renders a table with `T` and `p` (Sciviewer-like).
   - Gene click renders a compact violin-like plot of selected vs background (sampled for plotting).
 
+## Progress indicators
+
+- `demo.ipynb` dataset download uses `urllib.request.urlretrieve(..., reporthook=...)` to drive an `ipywidgets.IntProgress` (0–100%) while downloading; when the file already exists, the notebook shows a one-line “Found, skipping download” status instead of a persistent full bar.
+- scSketch compute feedback is step-based (not byte/gene-level):
+  - Directional compute advances coarse steps inside `ScSketch._compute_predicates_handler`.
+  - Differential compute advances coarse steps inside `ScSketch._compute_diffexpr_handler` and `ScSketch._schedule_auto_diffexpr`.
+  - Progress widgets live next to the compute buttons, include an animated spinner while active, and are hidden when idle.
+- scSketch directional selections (brush mode) show a visual direction arrow overlay:
+  - The arrow is derived from the brush “spine” (the midpoint line through the brush polygon).
+  - This arrow is a visual cue only; directional compute is unchanged.
+
 ## UI behavior rules
 
 - **Compute target**:
