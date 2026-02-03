@@ -63,6 +63,22 @@ sketch = ScSketch(
 sketch.show()
 ```
 
+**Gene IDs vs gene symbols**
+
+scSketch currently uses `adata.var_names` as the gene identifier for display/search. If your `AnnData` uses Ensembl IDs (e.g. `ENSG...`) in `var_names`, you will see Ensembl IDs in the UI.
+
+If you have gene symbols in a column like `adata.var["gene_symbols"]`, you can create a visualization-only copy that displays symbols:
+
+```python
+adata_view = adata.copy()
+adata_view.var["ensembl_id"] = adata_view.var_names
+adata_view.var_names = adata_view.var["gene_symbols"].astype(str)
+adata_view.var_names_make_unique()
+
+sketch = ScSketch(adata=adata_view, metadata_cols=["louvain"], color_by_default="louvain")
+sketch.show()
+```
+
 ### Running the original notebook with juv
 
 To run the original inline notebook, first install [juv](https://github.com/manzt/juv) and then call:

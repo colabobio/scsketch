@@ -55,6 +55,7 @@ All UI state lives on a `ScSketch` instance:
   - Returns a list of per-selection result lists (one entry per selection).
 - Rendering happens in `ScSketch._show_directional_results(directional_results)`:
   - Builds the gene table widget from results and wires the gene-click handlers.
+  - Gene click renders a projection-vs-expression plot for the active selection; expression is loaded for the selected cells only (to avoid loading 1M+ values).
 - Differential compute happens in `ScSketch._compute_diffexpr(selected_indices, selection_label)`:
   - Uses `adata.raw.X` if present, else `adata.X`.
   - Compares selected cells vs all non-selected cells using Welch t-test computed from summary stats.
@@ -67,7 +68,7 @@ All UI state lives on a `ScSketch` instance:
 - `demo.ipynb` dataset download uses `urllib.request.urlretrieve(..., reporthook=...)` to drive an `ipywidgets.IntProgress` (0–100%) while downloading; when the file already exists, the notebook shows a one-line “Found, skipping download” status instead of a persistent full bar.
 - scSketch compute feedback is step-based (not byte/gene-level):
   - Directional compute advances coarse steps inside `ScSketch._compute_predicates_handler`.
-  - Differential compute advances coarse steps inside `ScSketch._compute_diffexpr_handler` and `ScSketch._schedule_auto_diffexpr`.
+  - Differential compute advances coarse steps inside `ScSketch._compute_diffexpr_handler`.
   - Progress widgets live next to the compute buttons, include an animated spinner while active, and are hidden when idle.
 - scSketch directional selections (brush mode) show a visual direction arrow overlay:
   - The arrow is derived from the brush “spine” (the midpoint line through the brush polygon).
@@ -79,8 +80,9 @@ All UI state lives on a `ScSketch` instance:
   - If “Compare Between Selections” is enabled, compute runs over all saved selections.
   - Otherwise, compute runs over the active selection (fallback to the latest selection if none is active).
 - **Differential mode** (`lasso_type == "freeform"`):
-  - Directional controls are hidden and DE controls are shown (`Auto-compute DE`, thresholds, `Compute DE`).
-  - DE can auto-run when the current selection changes (when enabled).
+  - Directional controls are hidden and DE controls are shown (thresholds, `Compute DE`).
+- **Subdivide / Parts UI**:
+  - The subdivide controls are currently hidden (selections are saved as a single selection).
 - **Clear Results**:
   - Clears the visible results panel only.
   - Does not delete `Selection.cached_results`.

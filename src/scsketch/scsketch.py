@@ -159,8 +159,6 @@ class ScSketch:
         self.analysis_mode: str = "directional"  # "directional" | "differential"
         self._pending_diffexpr: dict | None = None
         self._diffexpr_global_stats: dict | None = None
-        self._diffexpr_last_fingerprint: tuple[int, int, int, int] | None = None
-        self._diffexpr_busy: bool = False
 
         self.selection_name: Text | None = None
         self.selection_add: Button | None = None
@@ -177,7 +175,6 @@ class ScSketch:
         self.directional_progress_box: VBox | None = None
         self.directional_progress_label: ipyw.HTML | None = None
         self.directional_progress_bar: ipyw.IntProgress | None = None
-        self.diff_auto: Checkbox | None = None
         self.diff_t_threshold: FloatText | None = None
         self.diff_p_threshold: FloatText | None = None
         self.compute_diffexpr: Button | None = None
@@ -515,7 +512,6 @@ class ScSketch:
         )
         self.directional_controls_box = VBox([self.compute_predicates, self.directional_progress_box])
 
-        self.diff_auto = Checkbox(value=True, description="Auto-compute DE", indent=False)
         self.diff_t_threshold = FloatText(value=2.0, step=0.5, description="|T| ≥")
         self.diff_t_threshold.layout.width = "100%"
         self.diff_t_threshold.style = {"description_width": "50px"}
@@ -548,7 +544,6 @@ class ScSketch:
         )
         self.diff_controls_box = VBox(
             [
-                self.diff_auto,
                 diff_thresholds,
                 self.compute_diffexpr,
                 self.diff_progress_box,
@@ -580,17 +575,18 @@ class ScSketch:
         scatter = self.scatter
 
         _cat_priority = ["cell_population", "seurat_clusters", "leiden", "louvain","clusters"]
-        cat_in_df = [c for c in _cat_priority if c in self.categorical_cols]
-        cat_rest = sorted([c for c in self.categorical_cols if c not in _cat_priority], key=lambda s: s.lower())
-        cat_ordered = cat_in_df + cat_rest
-        cat_opts = [(c.replace("_", " ").title(), c) for c in cat_ordered]
+        meta_cols = list(self.available_metadata_cols or [])
+        meta_in_df = [c for c in _cat_priority if c in meta_cols]
+        meta_rest = sorted([c for c in meta_cols if c not in _cat_priority], key=lambda s: s.lower())
+        meta_ordered = meta_in_df + meta_rest
+        meta_opts = [(c.replace("_", " ").title(), c) for c in meta_ordered]
 
         _qc_order = ["n_genes", "total_counts", "pct_counts_mt"]
         obs_opts = [(c.replace("_", " ").title(), c) for c in _qc_order if c in df.columns]
 
         _gene_sorted = sorted(list(self.adata.var_names), key=lambda s: s.lower())
         gene_options = [(g, g) for g in _gene_sorted[: self.max_genes]] if self.max_genes > 0 else []
-        dropdown_options = cat_opts + obs_opts + gene_options
+        dropdown_options = meta_opts + obs_opts + gene_options
 
         self.color_by = Dropdown(
             options=dropdown_options,
@@ -1029,7 +1025,6 @@ class ScSketch:
             if self.analysis_mode == "differential":
                 if self.compute_diffexpr is not None:
                     self.compute_diffexpr.disabled = False
-                self._schedule_auto_diffexpr(np.asarray(change["new"], dtype=int))
         else:
             self.selection_add.disabled = True
             self.selection_name.disabled = True
@@ -1200,16 +1195,16 @@ class ScSketch:
                     proj = np.clip(np.nan_to_num(proj, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0)
 
                 if gene in df.columns:
-                    expr_all = pd.to_numeric(df[gene], errors="coerce").to_numpy(dtype=float)
-                    log(f"[plot] gene {gene!r} found in df columns")
+                    expr = pd.to_numeric(df.iloc[selected_indices][gene], errors="coerce").to_numpy(dtype=float)
+                    log(f"[plot] gene {gene!r} found in df columns (n={len(expr)})")
                 else:
-                    sub = adata[:, [gene]].X
+                    sub = adata[selected_indices, [gene]].X
                     if hasattr(sub, "toarray"):
                         sub = sub.toarray()
-                    expr_all = np.asarray(sub).ravel().astype(float)
-                    log(f"[plot] gene {gene!r} NOT in df slice; loaded from adata (len={len(expr_all)})")
-
-                expr = expr_all[selected_indices]
+                    expr = np.asarray(sub).ravel().astype(float)
+                    log(
+                        f"[plot] gene {gene!r} NOT in df slice; loaded from adata for selection (n={len(expr)})"
+                    )
                 if not np.isfinite(expr).all():
                     finite = np.isfinite(expr)
                     if finite.any():
@@ -1382,7 +1377,7 @@ class ScSketch:
                 self.directional_controls_box.layout.display = "flex"
             if self.diff_controls_box is not None:
                 self.diff_controls_box.layout.display = "none"
-            self.complete_add.children = (self.add_controls, self.selection_subdivide_wrapper)
+            self.complete_add.children = (self.add_controls,)
             if self.compute_predicates is not None:
                 self.compute_predicates.style = "primary"
                 self.compute_predicates.description = "Compute Directional Search"
@@ -1703,34 +1698,6 @@ class ScSketch:
 
         gene_table_widget.observe(on_gene_click, names=["selected_gene"])
         self.selections_predicates.children = [gene_table_widget]
-
-    def _schedule_auto_diffexpr(self, selected_indices: np.ndarray):
-        if self.diff_auto is None or not bool(self.diff_auto.value):
-            return
-        sel = np.asarray(selected_indices, dtype=int)
-        sel = np.unique(sel)
-        if sel.size == 0:
-            return
-
-        fingerprint = (int(sel.size), int(sel[0]), int(sel[-1]), int(sel.sum(dtype=np.int64)))
-        if self._diffexpr_busy or self._diffexpr_last_fingerprint == fingerprint:
-            return
-        self._diffexpr_last_fingerprint = fingerprint
-
-        try:
-            self._diffexpr_busy = True
-            self._clear_analysis_progress("DE")
-            self._set_analysis_progress("DE", 1, 3, "Auto-compute: preparing selection")
-            self._set_analysis_progress("DE", 2, 3, "Auto-compute: computing statistics")
-            res = self._compute_diffexpr(sel, "Current selection")
-            self._pending_diffexpr = {"points": np.sort(sel), "results": res}
-            self._set_analysis_progress("DE", 3, 3, "Auto-compute: rendering")
-            self._show_diffexpr_results(res, "Current selection", selected_indices=sel)
-        except Exception:
-            self.logger.exception("Auto differential compute failed")
-        finally:
-            self._diffexpr_busy = False
-            self._clear_analysis_progress("DE")
 
     def get_genes(self, sel_name="Selection 1"):
         """Get the genes in a named selection."""
