@@ -70,9 +70,6 @@ All UI state lives on a `ScSketch` instance:
   - Directional compute advances coarse steps inside `ScSketch._compute_predicates_handler`.
   - Differential compute advances coarse steps inside `ScSketch._compute_diffexpr_handler`.
   - Progress widgets live next to the compute buttons, include an animated spinner while active, and are hidden when idle.
-- scSketch directional selections (brush mode) show a visual direction arrow overlay:
-  - The arrow is derived from the brush “spine” (the midpoint line through the brush polygon).
-  - This arrow is a visual cue only; directional compute is unchanged.
 
 ## UI behavior rules
 

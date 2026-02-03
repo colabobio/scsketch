@@ -244,100 +244,6 @@ class ScSketch:
         bar.value = 0
         box.layout.display = "none"
 
-    def _brush_spine_from_polygon(self, lasso_polygon: np.ndarray) -> np.ndarray | None:
-        lasso_polygon = np.asarray(lasso_polygon, dtype=float)
-        if lasso_polygon.ndim != 2 or lasso_polygon.shape[1] != 2 or lasso_polygon.shape[0] < 4:
-            return None
-        if lasso_polygon.shape[0] % 2 == 1:
-            lasso_polygon = lasso_polygon[:-1]
-        mid = lasso_polygon.shape[0] // 2
-        if mid < 2:
-            return None
-        return (lasso_polygon[:mid, :] + lasso_polygon[mid:, :]) / 2
-
-    def _arrow_lines(
-        self,
-        start: np.ndarray,
-        end: np.ndarray,
-        *,
-        color: str,
-        width: int = 3,
-    ) -> list[Line]:
-        start = np.asarray(start, dtype=float).ravel()
-        end = np.asarray(end, dtype=float).ravel()
-        if start.size != 2 or end.size != 2:
-            return []
-
-        v = end - start
-        norm = float(np.linalg.norm(v))
-        if not np.isfinite(norm) or norm <= 0.0:
-            return []
-
-        u = v / norm
-        p = np.array([-u[1], u[0]], dtype=float)
-
-        # Arrowhead size in data units: scale by embedding extent but cap to segment length.
-        if self.df is not None:
-            xs = np.asarray(self.df["x"], dtype=float)
-            ys = np.asarray(self.df["y"], dtype=float)
-            diag = float(np.hypot(float(np.nanmax(xs) - np.nanmin(xs)), float(np.nanmax(ys) - np.nanmin(ys))))
-            base = diag * 0.03 if np.isfinite(diag) and diag > 0 else norm * 0.15
-        else:
-            base = norm * 0.15
-
-        head_len = float(min(norm * 0.25, max(base, 1e-6)))
-        head_wid = float(head_len * 0.55)
-
-        tip = end
-        left = tip - head_len * u + head_wid * p
-        right = tip - head_len * u - head_wid * p
-
-        shaft = Line([start.tolist(), tip.tolist()], line_color=color, line_width=width)
-        head1 = Line([tip.tolist(), left.tolist()], line_color=color, line_width=width)
-        head2 = Line([tip.tolist(), right.tolist()], line_color=color, line_width=width)
-        return [shaft, head1, head2]
-
-    def _arrow_lines_from_spine(self, spine: np.ndarray, *, color: str, width: int = 3) -> list[Line]:
-        spine = np.asarray(spine, dtype=float)
-        if spine.ndim != 2 or spine.shape[1] != 2 or spine.shape[0] < 2:
-            return []
-
-        points = spine.astype(float).tolist()
-        shaft = Line(points, line_color=color, line_width=width)
-
-        # Orient the arrowhead using the last segment direction, but size it using the overall arrow scale.
-        tip = spine[-1]
-        seg = spine[-1] - spine[-2]
-        seg_norm = float(np.linalg.norm(seg))
-        if not np.isfinite(seg_norm) or seg_norm <= 0.0:
-            return [shaft]
-
-        u = seg / seg_norm
-        p = np.array([-u[1], u[0]], dtype=float)
-
-        overall = spine[-1] - spine[0]
-        overall_norm = float(np.linalg.norm(overall))
-        if not np.isfinite(overall_norm) or overall_norm <= 0.0:
-            overall_norm = seg_norm
-
-        if self.df is not None:
-            xs = np.asarray(self.df["x"], dtype=float)
-            ys = np.asarray(self.df["y"], dtype=float)
-            diag = float(np.hypot(float(np.nanmax(xs) - np.nanmin(xs)), float(np.nanmax(ys) - np.nanmin(ys))))
-            base = diag * 0.03 if np.isfinite(diag) and diag > 0 else overall_norm * 0.15
-        else:
-            base = overall_norm * 0.15
-
-        head_len = float(min(overall_norm * 0.35, max(base, 1e-6)))
-        head_wid = float(head_len * 0.55)
-
-        left = tip - head_len * u + head_wid * p
-        right = tip - head_len * u - head_wid * p
-
-        head1 = Line([tip.tolist(), left.tolist()], line_color=color, line_width=width)
-        head2 = Line([tip.tolist(), right.tolist()], line_color=color, line_width=width)
-        return [shaft, head1, head2]
-
     def _build_df(self):
         umap_df = pd.DataFrame(
             self.adata.obsm["X_umap"],
@@ -732,19 +638,6 @@ class ScSketch:
         try:
             lasso_polygon = [] if self.lasso.polygon is None else [self.lasso.polygon]
             overlays = self.selections.all_hulls() + lasso_polygon
-
-            arrow_overlays: list[Line] = []
-            if self.analysis_mode == "directional" and self.active_selection is not None and self.active_selection.path is not None:
-                spine = np.asarray(self.active_selection.path, dtype=float)
-                if spine.ndim == 2 and spine.shape[0] >= 2 and spine.shape[1] == 2:
-                    arrow_overlays.extend(self._arrow_lines_from_spine(spine, color=to_hex(self.active_selection.color), width=3))
-
-            if scatter.widget.lasso_type == "brush" and scatter.widget.lasso_selection_polygon is not None:
-                spine = self._brush_spine_from_polygon(np.asarray(scatter.widget.lasso_selection_polygon))
-                if spine is not None and spine.shape[0] >= 2:
-                    arrow_overlays.extend(self._arrow_lines_from_spine(spine, color=scatter.widget.color_selected, width=3))
-
-            overlays = overlays + arrow_overlays
             scatter.annotations(overlays)
         except Exception:
             self.logger.exception("Failed to update annotations")
