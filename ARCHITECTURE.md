@@ -20,6 +20,12 @@ This document describes how the interactive scSketch UI is structured and where 
 
 All UI state lives on a `ScSketch` instance:
 
+- `self.df` (`pd.DataFrame`)
+  - The main table passed to `jscatter.Scatter`.
+  - Always contains `x`, `y` (UMAP coords) and any requested metadata columns.
+  - May contain a small, optional set of preloaded gene-expression columns when `max_genes > 0` (to enable gene coloring in the dropdown).
+  - Does **not** contain all gene expression by default (to avoid huge memory use on large datasets).
+  - When `max_genes == 0`, no gene-expression columns are preloaded into `self.df` (analysis still uses all genes from `adata`).
 - `self.selections` (`Selections`)
   - The saved selections (each a `Selection` with `points`, `name`, `color`, etc.).
 - `self.active_selection` (`Selection | None`)
@@ -42,10 +48,14 @@ All UI state lives on a `ScSketch` instance:
 
 ## Compute vs render
 
-- Compute happens in `ScSketch._compute_directional_analysis(df, selections)`:
+- Directional compute happens in `ScSketch._compute_directional_analysis(df, selections)`:
+  - Uses `df[["x","y"]]` for geometry/projections.
+  - Pulls gene-expression from `adata.X` for the selected cells, so it can analyze all genes without preloading them into `self.df`.
+  - Uses a sparse-aware correlation implementation (`test_direction`) to avoid densifying `adata.X` when it is sparse.
   - Returns a list of per-selection result lists (one entry per selection).
 - Rendering happens in `ScSketch._show_directional_results(directional_results)`:
   - Builds the gene table widget from results and wires the gene-click handlers.
+  - Gene click renders a projection-vs-expression plot for the active selection; expression is loaded for the selected cells only (to avoid loading 1M+ values).
 - Differential compute happens in `ScSketch._compute_diffexpr(selected_indices, selection_label)`:
   - Uses `adata.raw.X` if present, else `adata.X`.
   - Compares selected cells vs all non-selected cells using Welch t-test computed from summary stats.
@@ -53,14 +63,23 @@ All UI state lives on a `ScSketch` instance:
   - Renders a table with `T` and `p` (Sciviewer-like).
   - Gene click renders a compact violin-like plot of selected vs background (sampled for plotting).
 
+## Progress indicators
+
+- `demo.ipynb` dataset download uses `urllib.request.urlretrieve(..., reporthook=...)` to drive an `ipywidgets.IntProgress` (0–100%) while downloading; when the file already exists, the notebook shows a one-line “Found, skipping download” status instead of a persistent full bar.
+- scSketch compute feedback is step-based (not byte/gene-level):
+  - Directional compute advances coarse steps inside `ScSketch._compute_predicates_handler`.
+  - Differential compute advances coarse steps inside `ScSketch._compute_diffexpr_handler`.
+  - Progress widgets live next to the compute buttons, include an animated spinner while active, and are hidden when idle.
+
 ## UI behavior rules
 
 - **Compute target**:
   - If “Compare Between Selections” is enabled, compute runs over all saved selections.
   - Otherwise, compute runs over the active selection (fallback to the latest selection if none is active).
 - **Differential mode** (`lasso_type == "freeform"`):
-  - Directional controls are hidden and DE controls are shown (`Auto-compute DE`, thresholds, `Compute DE`).
-  - DE can auto-run when the current selection changes (when enabled).
+  - Directional controls are hidden and DE controls are shown (thresholds, `Compute DE`).
+- **Subdivide / Parts UI**:
+  - The subdivide controls are currently hidden (selections are saved as a single selection).
 - **Clear Results**:
   - Clears the visible results panel only.
   - Does not delete `Selection.cached_results`.

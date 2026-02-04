@@ -19,6 +19,7 @@ from jscatter import Scatter, glasbey_light, link, okabe_ito, Line
 from jscatter.widgets import Button
 from matplotlib.colors import to_hex
 from scipy.spatial import ConvexHull
+import scipy.sparse as sp
 import scipy.stats as ss
 from anndata import AnnData
 
@@ -40,6 +41,16 @@ from .widgets import (
 )
 from .analysis import (
     compute_directional_analysis, test_direction, lord_test
+)
+
+_PROGRESS_SPINNER_HTML = (
+    '<svg width="14" height="14" viewBox="0 0 50 50" '
+    'style="vertical-align:-0.125em;margin-right:6px;">'
+    '<circle cx="25" cy="25" r="20" fill="none" stroke="#999" stroke-width="5" '
+    'stroke-linecap="round" stroke-dasharray="60 70">'
+    '<animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" '
+    'dur="0.8s" repeatCount="indefinite"/>'
+    "</circle></svg>"
 )
 
 class ScSketch:
@@ -71,7 +82,8 @@ class ScSketch:
             color_by_default: Default column to color by
             height: Height of the scatter plot in pixels
             background_color: Background color of the scatter plot
-            max_genes: Maximum number of genes to include (0 for all)
+            max_genes: Maximum number of genes to preload into the plot DataFrame (0 for none).
+                Directional analysis still uses all genes from `adata` regardless of this setting.
             fdr_alpha: False discovery rate alpha threshold for directional analysis
             verbosity: Logging verbosity level
         """
@@ -147,8 +159,6 @@ class ScSketch:
         self.analysis_mode: str = "directional"  # "directional" | "differential"
         self._pending_diffexpr: dict | None = None
         self._diffexpr_global_stats: dict | None = None
-        self._diffexpr_last_fingerprint: tuple[int, int, int, int] | None = None
-        self._diffexpr_busy: bool = False
 
         self.selection_name: Text | None = None
         self.selection_add: Button | None = None
@@ -162,11 +172,16 @@ class ScSketch:
         self.compute_predicates_between_selections: Checkbox | None = None
         self.compute_predicates_wrapper: VBox | None = None
         self.directional_controls_box: VBox | None = None
-        self.diff_auto: Checkbox | None = None
+        self.directional_progress_box: VBox | None = None
+        self.directional_progress_label: ipyw.HTML | None = None
+        self.directional_progress_bar: ipyw.IntProgress | None = None
         self.diff_t_threshold: FloatText | None = None
         self.diff_p_threshold: FloatText | None = None
         self.compute_diffexpr: Button | None = None
         self.diff_controls_box: VBox | None = None
+        self.diff_progress_box: VBox | None = None
+        self.diff_progress_label: ipyw.HTML | None = None
+        self.diff_progress_bar: ipyw.IntProgress | None = None
 
         self.add_controls: GridBox | None = None
         self.complete_add: VBox | None = None
@@ -189,6 +204,46 @@ class ScSketch:
     def _log(self, *args):
         self.logger.debug(" ".join(str(a) for a in args))
 
+    def _set_analysis_progress(self, mode: str, step: int, total: int, message: str):
+        if mode == "Directional":
+            box = self.directional_progress_box
+            label = self.directional_progress_label
+            bar = self.directional_progress_bar
+        elif mode == "DE":
+            box = self.diff_progress_box
+            label = self.diff_progress_label
+            bar = self.diff_progress_bar
+        else:
+            return
+
+        if box is None or label is None or bar is None:
+            return
+
+        total = int(max(1, total))
+        bar.max = total
+        bar.value = int(min(max(step, 0), total))
+        label.value = f"{_PROGRESS_SPINNER_HTML}{mode} ({bar.value}/{total}): {message}"
+        box.layout.display = "flex"
+
+    def _clear_analysis_progress(self, mode: str):
+        if mode == "Directional":
+            box = self.directional_progress_box
+            label = self.directional_progress_label
+            bar = self.directional_progress_bar
+        elif mode == "DE":
+            box = self.diff_progress_box
+            label = self.diff_progress_label
+            bar = self.diff_progress_bar
+        else:
+            return
+
+        if box is None or label is None or bar is None:
+            return
+
+        label.value = ""
+        bar.value = 0
+        box.layout.display = "none"
+
     def _build_df(self):
         umap_df = pd.DataFrame(
             self.adata.obsm["X_umap"],
@@ -201,10 +256,17 @@ class ScSketch:
                 col for col in self.metadata_cols if col in self.adata.obs.columns
             ]
             if len(available_metadata_cols) > 0:
-                metadata_df = self.adata.obs[available_metadata_cols].copy()
-                for col in available_metadata_cols:
-                    if pd.api.types.is_object_dtype(metadata_df[col]) or pd.api.types.is_categorical_dtype(metadata_df[col]):
-                        metadata_df[col] = metadata_df[col].astype(str)
+                metadata_df = self.adata.obs[available_metadata_cols].copy(deep=False)
+                coerce_cols = [
+                    col
+                    for col in available_metadata_cols
+                    if pd.api.types.is_object_dtype(metadata_df[col])
+                    or pd.api.types.is_categorical_dtype(metadata_df[col])
+                ]
+                if len(coerce_cols) > 0:
+                    metadata_df = metadata_df.assign(
+                        **{col: metadata_df[col].astype(str) for col in coerce_cols}
+                    )
             else:
                 self.logger.info("No requested metadata columns found; continuing without metadata.")
                 available_metadata_cols = []
@@ -215,15 +277,17 @@ class ScSketch:
             self.logger.info("No metadata passed; continuing with UMAP + gene expression only.")
 
         all_gene_sorted = sorted(list(self.adata.var_names), key=lambda s: s.lower())
-        if self.max_genes > 0:
-            gene_subset = all_gene_sorted[: self.max_genes]
-        else: 
-            gene_subset = all_gene_sorted
+        gene_subset = all_gene_sorted[: self.max_genes] if self.max_genes > 0 else []
         if len(gene_subset) > 0:
             subX = self.adata[:, gene_subset].X
-            if hasattr(subX, "toarray"):
-                subX = subX.toarray()
-            gene_exp_df = pd.DataFrame(subX, columns=gene_subset, index=self.adata.obs_names)
+            if sp.issparse(subX):
+                gene_exp_df = pd.DataFrame.sparse.from_spmatrix(
+                    subX, columns=gene_subset, index=self.adata.obs_names
+                )
+            else:
+                gene_exp_df = pd.DataFrame(
+                    np.asarray(subX), columns=gene_subset, index=self.adata.obs_names
+                )
         else:
             gene_exp_df = pd.DataFrame(index=self.adata.obs_names)
 
@@ -340,9 +404,20 @@ class ScSketch:
         self.compute_predicates_between_selections = Checkbox(
             value=False, description="Compare Between Selections", indent=False
         )
-        self.directional_controls_box = VBox([self.compute_predicates])
+        self.directional_progress_label = ipyw.HTML("")
+        self.directional_progress_bar = ipyw.IntProgress(
+            value=0,
+            min=0,
+            max=5,
+            description="",
+            layout=Layout(width="100%"),
+        )
+        self.directional_progress_box = VBox(
+            [self.directional_progress_label, self.directional_progress_bar],
+            layout=Layout(display="none", width="100%", grid_gap="2px"),
+        )
+        self.directional_controls_box = VBox([self.compute_predicates, self.directional_progress_box])
 
-        self.diff_auto = Checkbox(value=True, description="Auto-compute DE", indent=False)
         self.diff_t_threshold = FloatText(value=2.0, step=0.5, description="|T| ≥")
         self.diff_t_threshold.layout.width = "100%"
         self.diff_t_threshold.style = {"description_width": "50px"}
@@ -361,11 +436,23 @@ class ScSketch:
             disabled=True,
             full_width=True,
         )
+        self.diff_progress_label = ipyw.HTML("")
+        self.diff_progress_bar = ipyw.IntProgress(
+            value=0,
+            min=0,
+            max=5,
+            description="",
+            layout=Layout(width="100%"),
+        )
+        self.diff_progress_box = VBox(
+            [self.diff_progress_label, self.diff_progress_bar],
+            layout=Layout(display="none", width="100%", grid_gap="2px"),
+        )
         self.diff_controls_box = VBox(
             [
-                self.diff_auto,
                 diff_thresholds,
                 self.compute_diffexpr,
+                self.diff_progress_box,
             ],
             layout=Layout(display="none"),
         )
@@ -394,17 +481,18 @@ class ScSketch:
         scatter = self.scatter
 
         _cat_priority = ["cell_population", "seurat_clusters", "leiden", "louvain","clusters"]
-        cat_in_df = [c for c in _cat_priority if c in self.categorical_cols]
-        cat_rest = sorted([c for c in self.categorical_cols if c not in _cat_priority], key=lambda s: s.lower())
-        cat_ordered = cat_in_df + cat_rest
-        cat_opts = [(c.replace("_", " ").title(), c) for c in cat_ordered]
+        meta_cols = list(self.available_metadata_cols or [])
+        meta_in_df = [c for c in _cat_priority if c in meta_cols]
+        meta_rest = sorted([c for c in meta_cols if c not in _cat_priority], key=lambda s: s.lower())
+        meta_ordered = meta_in_df + meta_rest
+        meta_opts = [(c.replace("_", " ").title(), c) for c in meta_ordered]
 
         _qc_order = ["n_genes", "total_counts", "pct_counts_mt"]
         obs_opts = [(c.replace("_", " ").title(), c) for c in _qc_order if c in df.columns]
 
         _gene_sorted = sorted(list(self.adata.var_names), key=lambda s: s.lower())
-        gene_options = [(g, g) for g in _gene_sorted[: self.max_genes]]
-        dropdown_options = cat_opts + obs_opts + gene_options
+        gene_options = [(g, g) for g in _gene_sorted[: self.max_genes]] if self.max_genes > 0 else []
+        dropdown_options = meta_opts + obs_opts + gene_options
 
         self.color_by = Dropdown(
             options=dropdown_options,
@@ -808,9 +896,10 @@ class ScSketch:
                 self.directional_controls_box.children = (
                     self.compute_predicates_between_selections,
                     self.compute_predicates,
+                    self.directional_progress_box,
                 )
             else:
-                self.directional_controls_box.children = (self.compute_predicates,)
+                self.directional_controls_box.children = (self.compute_predicates, self.directional_progress_box)
         except Exception:
             self.logger.exception("Error updating compute_predicates UI state")
 
@@ -829,7 +918,6 @@ class ScSketch:
             if self.analysis_mode == "differential":
                 if self.compute_diffexpr is not None:
                     self.compute_diffexpr.disabled = False
-                self._schedule_auto_diffexpr(np.asarray(change["new"], dtype=int))
         else:
             self.selection_add.disabled = True
             self.selection_name.disabled = True
@@ -854,9 +942,10 @@ class ScSketch:
             self.directional_controls_box.children = (
                 self.compute_predicates_between_selections,
                 self.compute_predicates,
+                self.directional_progress_box,
             )
         else:
-            self.directional_controls_box.children = (self.compute_predicates,)
+            self.directional_controls_box.children = (self.compute_predicates, self.directional_progress_box)
 
     def _fetch_pathways(self, gene):
         url = f"https://reactome.org/ContentService/data/mapping/UniProt/{gene}/pathways?species=9606"
@@ -999,16 +1088,16 @@ class ScSketch:
                     proj = np.clip(np.nan_to_num(proj, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0)
 
                 if gene in df.columns:
-                    expr_all = pd.to_numeric(df[gene], errors="coerce").to_numpy(dtype=float)
-                    log(f"[plot] gene {gene!r} found in df columns")
+                    expr = pd.to_numeric(df.iloc[selected_indices][gene], errors="coerce").to_numpy(dtype=float)
+                    log(f"[plot] gene {gene!r} found in df columns (n={len(expr)})")
                 else:
-                    sub = adata[:, [gene]].X
+                    sub = adata[selected_indices, [gene]].X
                     if hasattr(sub, "toarray"):
                         sub = sub.toarray()
-                    expr_all = np.asarray(sub).ravel().astype(float)
-                    log(f"[plot] gene {gene!r} NOT in df slice; loaded from adata (len={len(expr_all)})")
-
-                expr = expr_all[selected_indices]
+                    expr = np.asarray(sub).ravel().astype(float)
+                    log(
+                        f"[plot] gene {gene!r} NOT in df slice; loaded from adata for selection (n={len(expr)})"
+                    )
                 if not np.isfinite(expr).all():
                     finite = np.isfinite(expr)
                     if finite.any():
@@ -1087,18 +1176,12 @@ class ScSketch:
             start_point = selected_embeddings[0]
             projections = np.array([np.dot(pt - start_point, v) for pt in selected_embeddings])
 
-            base_drop = [
-                "x",
-                "y",
-                "seurat_clusters",
-            ]
-            columns_to_drop = [col for col in set(base_drop).union(self.available_metadata_cols) if col in df.columns]
-            selected_expression = df.iloc[selected_indices].drop(columns=columns_to_drop, errors="ignore")
+            X_sel = self.adata.X[selected_indices, :]
 
-            batch_result_new = test_direction(selected_expression.values, projections)
+            batch_result_new = test_direction(X_sel, projections)
             rs = batch_result_new["correlation"].astype(float)
             ps = batch_result_new["p_value"].astype(float)
-            genes = list(selected_expression.columns)
+            genes = list(self.adata.var_names)
             n_new = len(ps)
 
             prev_len = 0 if (self.batch_results is None) else len(self.batch_results["p_value"])
@@ -1136,12 +1219,15 @@ class ScSketch:
     def _compute_predicates_handler(self, event):
         if self.compute_predicates is None:
             return
+        self._clear_analysis_progress("Directional")
         try:
             if len(self.selections.selections) == 0:
                 return
 
             self.compute_predicates.disabled = True
             self.compute_predicates.description = "Computing Directional Analysis…"
+
+            self._set_analysis_progress("Directional", 1, 4, "Preparing selection")
 
             if self.compute_predicates_between_selections is not None and self.compute_predicates_between_selections.value:
                 sels_for_run = self.selections
@@ -1150,9 +1236,12 @@ class ScSketch:
                 last_only = Selections(selections=[target])
                 sels_for_run = last_only
 
+            self._set_analysis_progress("Directional", 2, 4, "Computing correlations / p-values")
             directional_results = self._compute_directional_analysis(self.df, sels_for_run)
+            self._set_analysis_progress("Directional", 3, 4, "Caching results")
             for sel, res in zip(sels_for_run.selections, directional_results):
                 sel.cached_results = res
+            self._set_analysis_progress("Directional", 4, 4, "Rendering")
             self._show_directional_results(directional_results)
         except Exception:
             import traceback
@@ -1160,6 +1249,7 @@ class ScSketch:
             traceback.print_exc()
         finally:
             self.compute_predicates.disabled = False
+            self._clear_analysis_progress("Directional")
 
     def _lasso_type_change_handler(self, change):
         if self.complete_add is None or self.add_controls is None or self.selection_subdivide_wrapper is None:
@@ -1180,7 +1270,7 @@ class ScSketch:
                 self.directional_controls_box.layout.display = "flex"
             if self.diff_controls_box is not None:
                 self.diff_controls_box.layout.display = "none"
-            self.complete_add.children = (self.add_controls, self.selection_subdivide_wrapper)
+            self.complete_add.children = (self.add_controls,)
             if self.compute_predicates is not None:
                 self.compute_predicates.style = "primary"
                 self.compute_predicates.description = "Compute Directional Search"
@@ -1198,30 +1288,39 @@ class ScSketch:
                 self.compute_predicates.description = "Compute Directional Search"
                 self.compute_predicates.on_click(self._compute_predicates_handler)
             self._clear_results_display(None)
+        self._update_annotations()
 
     def _compute_diffexpr_handler(self, event):
         if self.scatter is None:
             return
         if self.compute_diffexpr is None:
             return
+        self._clear_analysis_progress("DE")
         try:
             self.compute_diffexpr.disabled = True
             self.compute_diffexpr.description = "Computing DE…"
+            self._set_analysis_progress("DE", 1, 4, "Preparing selection")
 
             if len(self.scatter.selection()) > 0:
                 sel = np.asarray(self.scatter.selection(), dtype=int)
                 label = "Current selection"
+                self._set_analysis_progress("DE", 2, 4, "Computing statistics")
                 res = self._compute_diffexpr(sel, label)
                 self._pending_diffexpr = {"points": np.sort(np.unique(sel)), "results": res}
+                self._set_analysis_progress("DE", 3, 4, "Formatting results")
                 self._show_diffexpr_results(res, label, selected_indices=np.unique(sel))
             elif self.active_selection is not None:
                 label = self.active_selection.name
+                self._set_analysis_progress("DE", 2, 4, "Computing statistics")
                 res = self._compute_diffexpr(self.active_selection.points, label)
                 self.active_selection.cached_diffexpr = res
+                self._set_analysis_progress("DE", 3, 4, "Formatting results")
                 self._show_diffexpr_results(res, label, selected_indices=np.asarray(self.active_selection.points, dtype=int))
+            self._set_analysis_progress("DE", 4, 4, "Done")
         finally:
             self.compute_diffexpr.disabled = False
             self.compute_diffexpr.description = "Compute DE"
+            self._clear_analysis_progress("DE")
 
     def _color_by_change_handler(self, change):
         if self.scatter is None:
@@ -1492,29 +1591,6 @@ class ScSketch:
 
         gene_table_widget.observe(on_gene_click, names=["selected_gene"])
         self.selections_predicates.children = [gene_table_widget]
-
-    def _schedule_auto_diffexpr(self, selected_indices: np.ndarray):
-        if self.diff_auto is None or not bool(self.diff_auto.value):
-            return
-        sel = np.asarray(selected_indices, dtype=int)
-        sel = np.unique(sel)
-        if sel.size == 0:
-            return
-
-        fingerprint = (int(sel.size), int(sel[0]), int(sel[-1]), int(sel.sum(dtype=np.int64)))
-        if self._diffexpr_busy or self._diffexpr_last_fingerprint == fingerprint:
-            return
-        self._diffexpr_last_fingerprint = fingerprint
-
-        try:
-            self._diffexpr_busy = True
-            res = self._compute_diffexpr(sel, "Current selection")
-            self._pending_diffexpr = {"points": np.sort(sel), "results": res}
-            self._show_diffexpr_results(res, "Current selection", selected_indices=sel)
-        except Exception:
-            self.logger.exception("Auto differential compute failed")
-        finally:
-            self._diffexpr_busy = False
 
     def get_genes(self, sel_name="Selection 1"):
         """Get the genes in a named selection."""

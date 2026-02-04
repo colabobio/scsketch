@@ -33,6 +33,52 @@ sketch.show()
 
 See the demo notebook for more details
 
+### Use scSketch in your own notebook
+
+Install scSketch into the environment backing your Jupyter kernel:
+
+```bash
+python -m pip install scsketch
+```
+
+Then in a notebook:
+
+```python
+import scanpy as sc
+from scsketch import ScSketch
+
+adata = sc.read_h5ad("my_data.h5ad")
+
+# scSketch currently reads coordinates from `adata.obsm["X_umap"]`.
+# If you have a different embedding (e.g. tSNE), you can copy it into `X_umap`:
+# adata.obsm["X_umap"] = adata.obsm["X_tsne"]
+
+sketch = ScSketch(
+    adata=adata,
+    metadata_cols=["louvain"],   # optional: columns in `adata.obs` for coloring
+    color_by_default="louvain",  # optional: which metadata to color by initially
+)
+
+# If this isn't the last line in the cell, use: `from IPython.display import display; display(sketch.show())`
+sketch.show()
+```
+
+**Gene IDs vs gene symbols**
+
+scSketch currently uses `adata.var_names` as the gene identifier for display/search. If your `AnnData` uses Ensembl IDs (e.g. `ENSG...`) in `var_names`, you will see Ensembl IDs in the UI.
+
+If you have gene symbols in a column like `adata.var["gene_symbols"]`, you can create a visualization-only copy that displays symbols:
+
+```python
+adata_view = adata.copy()
+adata_view.var["ensembl_id"] = adata_view.var_names
+adata_view.var_names = adata_view.var["gene_symbols"].astype(str)
+adata_view.var_names_make_unique()
+
+sketch = ScSketch(adata=adata_view, metadata_cols=["louvain"], color_by_default="louvain")
+sketch.show()
+```
+
 ### Running the original notebook with juv
 
 To run the original inline notebook, first install [juv](https://github.com/manzt/juv) and then call:
@@ -90,8 +136,6 @@ If you prefer to activate the environment in your shell:
 source .venv/bin/activate
 # Now you can use `jupyter`, `python`, `pip` directly
 jupyter lab
-```
-uv run jupyter lab demo.ipynb
 ```
 
 Or with editable installs:
@@ -152,4 +196,3 @@ To bump the version use one of the following commands:
 3. `uvx bump-my-version bump major` (e.g., v0.1.0 → v1.0.0)
 
 Afterward do `git push --follow-tags`. Github actions will handle the rest.
-
