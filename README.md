@@ -2,12 +2,24 @@
 
 scSketch is an interactive exploration tool of single-cell embeddings (UMAP, tSNE, etc.) for Python notebooks. It is based on the [jupyter-scatter widget](https://jupyter-scatter.dev/) by [Fritz Lekschas](https://lekschas.de/) and it reimplements the earlier [SciViewer visualizer](https://github.com/colabobio/sciviewer).
 
-<p align="center">
-  <img src="docs/assets/dir_analysis_demo.gif" alt="scSketch directional analysis demo" width="900" />
-</p>
-<p align="center">
-  <em>Directional sketch → compute directional analysis → click a gene for pathway context.</em>
-</p>
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/assets/dir_analysis_demo.gif" alt="scSketch directional analysis demo" width="460" />
+    </td>
+    <td align="center">
+      <img src="docs/assets/diff_exp_analysis_demo.gif" alt="scSketch differential expression demo" width="460" />
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <em>Directional sketch → compute directional analysis → click a gene for pathway context.</em>
+    </td>
+    <td align="center">
+      <em>Select two groups → compute differential expression → browse results.</em>
+    </td>
+  </tr>
+</table>
 
 ## Usage
 
