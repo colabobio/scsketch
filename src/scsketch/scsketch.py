@@ -1598,10 +1598,15 @@ class ScSketch:
         for sel in selections:
             if sel.name == sel_name:
                 if sel.cached_results is not None:
-                    gene_names = [entry["attribute"] for entry in sel.cached_results]
-                    gene_corr = [entry["interval"][0] for entry in sel.cached_results]
-                    gene_pval = [entry["interval"][1] for entry in sel.cached_results]
-                    results = pd.DataFrame({'gene': gene_names, 'correlation': gene_corr, 'p-value': gene_pval})
+                    data = [
+                        {
+                            'gene': entry["attribute"],
+                            'correlation': entry["interval"][0],
+                            'p-value': entry["interval"][1]
+                        }
+                        for entry in sel.cached_results
+                    ]
+                    results = pd.DataFrame(data)
                     results.sort_values(by=['correlation'], ascending=False, inplace=True)
                     return results
         return pd.DataFrame()  # Empty DataFrame if selection not found
