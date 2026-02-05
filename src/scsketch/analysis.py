@@ -4,6 +4,19 @@ import numpy as np
 import scipy.sparse as sp
 import scipy.stats as ss
 
+try:
+    import numba as nb
+except Exception:  # pragma: no cover
+    nb = None
+
+
+def _default_gammai(N: int) -> np.ndarray:
+    return (
+        0.07720838
+        * np.log(np.maximum(np.arange(1, N + 2), 2))
+        / (np.arange(1, N + 2) * np.exp(np.sqrt(np.log(np.arange(1, N + 2)))))
+    )
+
 
 def compute_directional_analysis(df, selections, metadata_columns=None):
     """
@@ -125,7 +138,7 @@ def test_direction(X, projection):
     p = np.clip(p, 0.0, 1.0)
     return {"correlation": rs, "p_value": p}
 
-def lord_test(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005):
+def _lord_test_python(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005):
     """"
     This is a translation of "version 1" under:
 
@@ -138,11 +151,7 @@ def lord_test(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005):
     N = len(pval)
 
     if gammai is None:
-        gammai = (
-            0.07720838
-            * np.log(np.maximum(np.arange(1, N + 2), 2))
-            / (np.arange(1, N + 2) * np.exp(np.sqrt(np.log(np.arange(1, N + 2)))))
-        )
+        gammai = _default_gammai(N)
 
     # setup variables, substituting previous results if needed
     alphai = np.zeros(N)
@@ -182,3 +191,105 @@ def lord_test(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005):
             K += 1
 
     return {"p_value": pval, "alpha_i": alphai, "R": R, "tau": tau}
+
+
+if nb is not None:
+
+    @nb.njit(cache=True)
+    def _lord_update_numba(pval, alphai, R, gammai, alpha, w0, tau, tau_len, start_i, K):
+        N = pval.shape[0]
+        for i in range(start_i, N):
+            if K <= 1:
+                if R[i - 1]:
+                    tau[0] = i - 1
+                    tau_len = 1
+                Cjsum = 0.0
+                if K == 1:
+                    Cjsum = gammai[i - tau[0] - 1]
+                alphai[i] = w0 * gammai[i] + (alpha - w0) * Cjsum
+            else:
+                if R[i - 1]:
+                    # Tau can lag K by 1 if the last rejection was at i-1 (end-of-call behavior).
+                    if tau_len < K:
+                        tau[tau_len] = i - 1
+                        tau_len += 1
+                Cjsum = 0.0
+                for j in range(1, K):
+                    Cjsum += gammai[i - tau[j] - 1]
+                alphai[i] = (
+                    w0 * gammai[i]
+                    + (alpha - w0) * gammai[i - tau[0] - 1]
+                    + alpha * Cjsum
+                )
+
+            if pval[i] <= alphai[i]:
+                R[i] = True
+                K += 1
+        return tau_len, K
+
+
+def lord_test(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005, *, backend="auto"):
+    """
+    LORD++ online FDR control.
+
+    Parameters
+    ----------
+    pval:
+        1D array of p-values.
+    initial_results:
+        Previous output from `lord_test` (for incremental updates).
+    gammai:
+        LORD++ gamma sequence. If None, a default sequence is used.
+    backend:
+        "auto" (default), "python", or "numba".
+    """
+    if backend not in {"auto", "python", "numba"}:
+        raise ValueError("backend must be one of: 'auto', 'python', 'numba'.")
+
+    pval = np.asarray(pval, dtype=float).ravel()
+    N = int(pval.shape[0])
+    if gammai is None:
+        gammai = _default_gammai(N)
+    else:
+        gammai = np.asarray(gammai, dtype=float).ravel()
+
+    want_numba = backend == "numba" or (backend == "auto" and nb is not None and N >= 5000)
+    if not want_numba or nb is None:
+        return _lord_test_python(
+            pval, initial_results=initial_results, gammai=gammai, alpha=alpha, w0=w0
+        )
+
+    alphai = np.zeros(N, dtype=float)
+    R = np.zeros(N, dtype=np.bool_)
+    tau_list: list[int] = []
+    if initial_results is not None:
+        N0 = int(len(initial_results["p_value"]))
+        alphai[:N0] = np.asarray(initial_results["alpha_i"], dtype=float)
+        R[:N0] = np.asarray(initial_results["R"], dtype=np.bool_)
+        tau_list = list(initial_results.get("tau", []))
+    else:
+        N0 = 1
+        alphai[0] = float(gammai[0]) * float(w0)
+        R[0] = bool(pval[0] <= alphai[0])
+        if R[0]:
+            tau_list = [0]
+
+    K = int(np.sum(R))
+    tau = np.empty(N, dtype=np.int64)
+    tau_len = int(len(tau_list))
+    if tau_len:
+        tau[:tau_len] = np.asarray(tau_list, dtype=np.int64)
+
+    tau_len, _ = _lord_update_numba(
+        pval,
+        alphai,
+        R,
+        gammai,
+        float(alpha),
+        float(w0),
+        tau,
+        tau_len,
+        int(N0),
+        int(K),
+    )
+    return {"p_value": pval, "alpha_i": alphai, "R": R, "tau": tau[:tau_len].tolist()}
