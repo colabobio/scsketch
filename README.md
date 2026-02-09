@@ -77,6 +77,16 @@ sketch = ScSketch(
 sketch.show()
 ```
 
+**Directional Search: keep brush selections roughly linear**
+
+Directional Search reduces your selection to a 1D “along-the-sketch” axis by projecting cells onto a single direction vector. If your brush selection is very curved, loops back, or spans multiple branches/blobs, that 1D projection can mix multiple directions of variation and produce hard-to-interpret results.
+
+Practical tips:
+
+- Sketch along one clear gradient at a time (a narrow, elongated selection works best).
+- If the trajectory bends, split it into multiple shorter selections and compare results.
+
+
 **Gene IDs vs gene symbols**
 
 scSketch currently uses `adata.var_names` as the gene identifier for display/search. If your `AnnData` uses Ensembl IDs (e.g. `ENSG...`) in `var_names`, you will see Ensembl IDs in the UI.
