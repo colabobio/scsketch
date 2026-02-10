@@ -83,7 +83,7 @@ Directional Search reduces your selection to a 1D “along-the-sketch” axis by
 
 Practical tips:
 
-- Sketch along one clear gradient at a time (a narrow, elongated selection works best).
+- Sketch along one clear gradient at a time (a selection closer to a straight line works best).
 - If the trajectory bends, split it into multiple shorter selections and compare results.
 
 
