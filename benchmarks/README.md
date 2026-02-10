@@ -21,6 +21,14 @@ Defaults are hard-coded in `benchmarks/perf_retest.py`:
 - `nygc_pbmc_161k_lite.h5ad`: `[20661, 25531, 50000]`
 - `1M_20260121.h5ad`: `[25531, 143672, 376364]`
 
+These files can be downloaded from:
+
+* pbmc3k.h5ad (PBMC 3K): https://raw.githubusercontent.com/chanzuckerberg/cellxgene/main/example-dataset/pbmc3k.h5ad
+* nygc_pbmc_161k_lite.h5ad (161k): https://cellxgene.cziscience.com/collections/b0cf0afa-ec40-4d65-b570-ed4ceacc6813
+* 1M_20260121.h5ad (1.2M): https://datasets.cellxgene.cziscience.com/c3d1a5e6-780b-4fe9-a39b-1864f927e87b.h5ad
+
+Rename the 2nd and 3rd to nygc_pbmc_161k_lite.h5ad and 1M_20260121.h5ad respectively and move them under the root folder of this repo.
+
 Selections are generated deterministically from the embedding by picking cells close to the principal axis and ordering them along that axis (to mimic a directional brush).
 
 ## Run
