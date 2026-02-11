@@ -293,3 +293,131 @@ def lord_test(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005, *, 
         int(K),
     )
     return {"p_value": pval, "alpha_i": alphai, "R": R, "tau": tau[:tau_len].tolist()}
+
+
+def _sanitize_selected_indices(selected_indices, n_obs: int) -> np.ndarray:
+    idx = np.asarray(selected_indices, dtype=np.int64).ravel()
+    idx = idx[(idx >= 0) & (idx < int(n_obs))]
+    if idx.size == 0:
+        return idx
+    return np.unique(idx)
+
+
+if nb is not None:
+
+    @nb.njit(cache=True)
+    def _diffexpr_sum_sqsum_csr_numba(indptr, indices, data, sel, n_vars):
+        sum1 = np.zeros(n_vars, dtype=np.float64)
+        sqsum1 = np.zeros(n_vars, dtype=np.float64)
+        for k in range(sel.size):
+            r = sel[k]
+            start = indptr[r]
+            stop = indptr[r + 1]
+            for j in range(start, stop):
+                c = indices[j]
+                v = data[j]
+                sum1[c] += v
+                sqsum1[c] += v * v
+        return sum1, sqsum1
+
+
+def diffexpr_sum_sqsum_selected_csr(X, selected_indices, *, backend="auto") -> tuple[np.ndarray, np.ndarray]:
+    """
+    Compute per-gene sum and sum-of-squares for a selected set of rows in a CSR matrix.
+
+    This is used by scSketch's differential expression mode (Welch t-test from summary stats).
+    The computation is mathematically identical to:
+      - sum1 = X1.sum(axis=0)
+      - sqsum1 = X1.power(2).sum(axis=0)
+    where X1 = X[selected_indices, :], but avoids materializing X1 and can compute both
+    reductions in one pass over the selected rows.
+
+    Parameters
+    ----------
+    X:
+        SciPy CSR matrix.
+    selected_indices:
+        1D array-like of row indices (cells) to include.
+    backend:
+        "auto" (default), "python", or "numba".
+    """
+    if backend not in {"auto", "python", "numba"}:
+        raise ValueError("backend must be one of: 'auto', 'python', 'numba'.")
+    if not sp.isspmatrix_csr(X):
+        raise TypeError("X must be a SciPy CSR matrix.")
+
+    n_obs, n_vars = map(int, X.shape)
+    sel = _sanitize_selected_indices(selected_indices, n_obs)
+    if sel.size == 0:
+        z = np.zeros((n_vars,), dtype=float)
+        return z, z.copy()
+
+    want_numba = backend == "numba" or (backend == "auto" and nb is not None and sel.size >= 5000)
+    if want_numba and nb is not None:
+        return _diffexpr_sum_sqsum_csr_numba(X.indptr, X.indices, X.data, sel, n_vars)
+
+    sum1 = np.zeros((n_vars,), dtype=np.float64)
+    sqsum1 = np.zeros((n_vars,), dtype=np.float64)
+    indptr = X.indptr
+    indices = X.indices
+    data = X.data
+    for r in sel:
+        start = indptr[r]
+        stop = indptr[r + 1]
+        cols = indices[start:stop]
+        vals = np.asarray(data[start:stop]).astype(np.float64, copy=False)
+        sum1[cols] += vals
+        sqsum1[cols] += vals * vals
+    return sum1, sqsum1
+
+
+if nb is not None:
+
+    @nb.njit(cache=True)
+    def _diffexpr_sum_sqsum_csr_global_numba(indices, data, n_vars):
+        total_sum = np.zeros(n_vars, dtype=np.float64)
+        total_sqsum = np.zeros(n_vars, dtype=np.float64)
+        for k in range(data.size):
+            c = indices[k]
+            v = data[k]
+            total_sum[c] += v
+            total_sqsum[c] += v * v
+        return total_sum, total_sqsum
+
+
+def diffexpr_sum_sqsum_csr_global(X, *, backend="auto") -> tuple[np.ndarray, np.ndarray]:
+    """
+    Compute per-gene global sum and sum-of-squares over all rows in a CSR matrix.
+
+    This is used to precompute global summary statistics for scSketch's differential
+    expression mode (Welch t-test from summary stats). It is mathematically identical to:
+      - total_sum = X.sum(axis=0)
+      - total_sqsum = X.power(2).sum(axis=0)
+    but avoids materializing `X.power(2)` by computing both reductions in a single pass
+    over CSR storage.
+
+    Parameters
+    ----------
+    X:
+        SciPy CSR matrix.
+    backend:
+        "auto" (default), "python", or "numba".
+    """
+    if backend not in {"auto", "python", "numba"}:
+        raise ValueError("backend must be one of: 'auto', 'python', or 'numba'.")
+    if not sp.isspmatrix_csr(X):
+        raise TypeError("X must be a SciPy CSR matrix.")
+
+    n_obs, n_vars = map(int, X.shape)
+    if n_obs == 0 or n_vars == 0 or int(getattr(X, "nnz", 0)) == 0:
+        z = np.zeros((n_vars,), dtype=float)
+        return z, z.copy()
+
+    nnz = int(getattr(X, "nnz", 0) or 0)
+    want_numba = backend == "numba" or (backend == "auto" and nb is not None and nnz >= 1_000_000)
+    if want_numba and nb is not None:
+        return _diffexpr_sum_sqsum_csr_global_numba(X.indices, X.data, n_vars)
+
+    total_sum = np.asarray(X.sum(axis=0)).ravel().astype(float, copy=False)
+    total_sqsum = np.asarray(X.power(2).sum(axis=0)).ravel().astype(float, copy=False)
+    return total_sum, total_sqsum

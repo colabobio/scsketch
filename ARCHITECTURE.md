@@ -59,6 +59,13 @@ All UI state lives on a `ScSketch` instance:
 - Differential compute happens in `ScSketch._compute_diffexpr(selected_indices, selection_label)`:
   - Uses `adata.raw.X` if present, else `adata.X`.
   - Compares selected cells vs all non-selected cells using Welch t-test computed from summary stats.
+  - Maintains a per-dataset cache of global summary statistics (`sum` / `sqsum`) to support fast repeated DE queries.
+    - Optionally, these global stats can be persisted to disk via `ScSketch(diffexpr_disk_cache_dir=...)` to avoid
+      recomputing them across notebook sessions on large datasets.
+    - For SciPy CSR matrices, global `sum`/`sqsum` are computed in one pass over CSR storage (to avoid materializing
+      `X.power(2)` for large sparse matrices).
+  - For SciPy CSR matrices, per-selection `sum`/`sqsum` are computed directly from the CSR storage (one pass over
+    selected rows; Numba-accelerated when available) to avoid materializing the sliced submatrix.
 - Differential rendering happens in `ScSketch._show_diffexpr_results(diff_results, ...)`:
   - Renders a table with `T` and `p` (Sciviewer-like).
   - Gene click renders a compact violin-like plot of selected vs background (sampled for plotting).
