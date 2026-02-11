@@ -1391,39 +1391,39 @@ class ScSketch:
         ):
             return
 
-        # cache_path = self._diffexpr_cache_path(
-        #     source=source,
-        #     n_obs=int(X.shape[0]),
-        #     n_vars=int(X.shape[1]),
-        #     var_names=var_names,
-        # )
-        # if cache_path is not None and cache_path.exists():
-        #     try:
-        #         with np.load(cache_path, allow_pickle=False) as z:
-        #             cached_sum = np.asarray(z["sum"], dtype=float).ravel()
-        #             cached_sqsum = np.asarray(z["sqsum"], dtype=float).ravel()
-        #             cached_n_obs = int(z["n_obs"])
-        #             cached_n_vars = int(z["n_vars"])
-        #             cached_source = str(z["source"])
-        #         if (
-        #             cached_source == source
-        #             and cached_n_obs == int(X.shape[0])
-        #             and cached_n_vars == int(X.shape[1])
-        #             and cached_sum.shape[0] == cached_n_vars
-        #             and cached_sqsum.shape[0] == cached_n_vars
-        #         ):
-        #             self._diffexpr_global_stats = {
-        #                 "source": source,
-        #                 "n_obs": int(X.shape[0]),
-        #                 "n_vars": int(X.shape[1]),
-        #                 "var_names": var_names,
-        #                 "sum": cached_sum.astype(float, copy=False),
-        #                 "sqsum": cached_sqsum.astype(float, copy=False),
-        #                 "disk_cache": str(cache_path),
-        #             }
-        #             return
-        #     except Exception:
-        #         self.logger.exception("Failed to load DE disk cache; recomputing global stats.")
+        cache_path = self._diffexpr_cache_path(
+            source=source,
+            n_obs=int(X.shape[0]),
+            n_vars=int(X.shape[1]),
+            var_names=var_names,
+        )
+        if cache_path is not None and cache_path.exists():
+            try:
+                with np.load(cache_path, allow_pickle=False) as z:
+                    cached_sum = np.asarray(z["sum"], dtype=float).ravel()
+                    cached_sqsum = np.asarray(z["sqsum"], dtype=float).ravel()
+                    cached_n_obs = int(z["n_obs"])
+                    cached_n_vars = int(z["n_vars"])
+                    cached_source = str(z["source"])
+                if (
+                    cached_source == source
+                    and cached_n_obs == int(X.shape[0])
+                    and cached_n_vars == int(X.shape[1])
+                    and cached_sum.shape[0] == cached_n_vars
+                    and cached_sqsum.shape[0] == cached_n_vars
+                ):
+                    self._diffexpr_global_stats = {
+                        "source": source,
+                        "n_obs": int(X.shape[0]),
+                        "n_vars": int(X.shape[1]),
+                        "var_names": var_names,
+                        "sum": cached_sum.astype(float, copy=False),
+                        "sqsum": cached_sqsum.astype(float, copy=False),
+                        "disk_cache": str(cache_path),
+                    }
+                    return
+            except Exception:
+                self.logger.exception("Failed to load DE disk cache; recomputing global stats.")
 
         if sp.isspmatrix_csr(X):
             total_sum, total_sqsum = diffexpr_sum_sqsum_csr_global(X, backend="auto")
@@ -1447,23 +1447,23 @@ class ScSketch:
             "sqsum": total_sqsum,
         }
 
-        # if cache_path is not None:
-        #     try:
-        #         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        #         tmp = cache_path.with_name(cache_path.name + ".tmp")
-        #         with tmp.open("wb") as f:
-        #             np.savez(
-        #                 f,
-        #                 source=source,
-        #                 n_obs=int(X.shape[0]),
-        #                 n_vars=int(X.shape[1]),
-        #                 sum=self._diffexpr_global_stats["sum"],
-        #                 sqsum=self._diffexpr_global_stats["sqsum"],
-        #             )
-        #         tmp.replace(cache_path)
-        #         self._diffexpr_global_stats["disk_cache"] = str(cache_path)
-        #     except Exception:
-        #         self.logger.exception("Failed to write DE disk cache; continuing without it.")
+        if cache_path is not None:
+            try:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = cache_path.with_name(cache_path.name + ".tmp")
+                with tmp.open("wb") as f:
+                    np.savez(
+                        f,
+                        source=source,
+                        n_obs=int(X.shape[0]),
+                        n_vars=int(X.shape[1]),
+                        sum=self._diffexpr_global_stats["sum"],
+                        sqsum=self._diffexpr_global_stats["sqsum"],
+                    )
+                tmp.replace(cache_path)
+                self._diffexpr_global_stats["disk_cache"] = str(cache_path)
+            except Exception:
+                self.logger.exception("Failed to write DE disk cache; continuing without it.")
 
     def _compute_diffexpr(self, selected_indices: np.ndarray, selection_label: str) -> list[dict]:
         self._ensure_diffexpr_global_stats()
