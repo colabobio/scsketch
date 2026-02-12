@@ -6,12 +6,15 @@ https://github.com/flekschas/jupyter-scatter/blob/main/notebooks/dimbridge.ipynb
 """
 
 import base64
+import hashlib
 import numpy as np
 import pandas as pd
 import requests
 from itertools import cycle
+from pathlib import Path
 from typing import Optional, List
 import ipywidgets as ipyw
+import numba as nb
 
 from IPython.display import display, HTML
 from ipywidgets import Checkbox, Dropdown, GridBox, HBox, Layout, IntText, FloatText, Text, VBox
@@ -40,7 +43,11 @@ from .widgets import (
     InteractiveSVG, Label, Div, GeneViolinPlot
 )
 from .analysis import (
-    compute_directional_analysis, test_direction, lord_test
+    compute_directional_analysis,
+    test_direction,
+    lord_test,
+    diffexpr_sum_sqsum_selected_csr,
+    diffexpr_sum_sqsum_csr_global,
 )
 
 _PROGRESS_SPINNER_HTML = (
@@ -72,6 +79,7 @@ class ScSketch:
         max_genes: int = 0,
         fdr_alpha: float = 0.05,
         verbosity: LogLevel = "warning",
+        diffexpr_disk_cache_dir: str | Path | None = None,
     ):
         """
         Initialize ScSketch widget.
@@ -96,6 +104,9 @@ class ScSketch:
         self.max_genes = max_genes
         self.fdr_alpha = fdr_alpha
         self.verbosity = verbosity
+        self.diffexpr_disk_cache_dir = (
+            Path(diffexpr_disk_cache_dir) if diffexpr_disk_cache_dir is not None else None
+        )
 
         self.df: pd.DataFrame | None = None
         self.available_metadata_cols: list[str] = []
@@ -1352,6 +1363,24 @@ class ScSketch:
             return adata.raw.X, list(adata.raw.var_names), "raw"
         return adata.X, list(adata.var_names), "X"
 
+    def _diffexpr_cache_path(self, *, source: str, n_obs: int, n_vars: int, var_names: list[str]) -> Path | None:
+        cache_dir = self.diffexpr_disk_cache_dir
+        if cache_dir is None:
+            return None
+
+        h = hashlib.sha256()
+        h.update(source.encode("utf-8"))
+        h.update(b"\0")
+        h.update(str(n_obs).encode("utf-8"))
+        h.update(b"\0")
+        h.update(str(n_vars).encode("utf-8"))
+        h.update(b"\0")
+        for name in var_names:
+            h.update(str(name).encode("utf-8"))
+            h.update(b"\0")
+        key = h.hexdigest()[:16]
+        return cache_dir / f"diffexpr_global_stats_{key}.npz"
+
     def _ensure_diffexpr_global_stats(self):
         X, var_names, source = self._de_source()
         if (
@@ -1362,24 +1391,79 @@ class ScSketch:
         ):
             return
 
-        if hasattr(X, "sum"):
-            total_sum = np.asarray(X.sum(axis=0)).ravel()
-        else:
-            total_sum = np.asarray(np.sum(X, axis=0)).ravel()
+        cache_path = self._diffexpr_cache_path(
+            source=source,
+            n_obs=int(X.shape[0]),
+            n_vars=int(X.shape[1]),
+            var_names=var_names,
+        )
+        if cache_path is not None and cache_path.exists():
+            try:
+                with np.load(cache_path, allow_pickle=False) as z:
+                    cached_sum = np.asarray(z["sum"], dtype=float).ravel()
+                    cached_sqsum = np.asarray(z["sqsum"], dtype=float).ravel()
+                    cached_n_obs = int(z["n_obs"])
+                    cached_n_vars = int(z["n_vars"])
+                    cached_source = str(z["source"])
+                if (
+                    cached_source == source
+                    and cached_n_obs == int(X.shape[0])
+                    and cached_n_vars == int(X.shape[1])
+                    and cached_sum.shape[0] == cached_n_vars
+                    and cached_sqsum.shape[0] == cached_n_vars
+                ):
+                    self._diffexpr_global_stats = {
+                        "source": source,
+                        "n_obs": int(X.shape[0]),
+                        "n_vars": int(X.shape[1]),
+                        "var_names": var_names,
+                        "sum": cached_sum.astype(float, copy=False),
+                        "sqsum": cached_sqsum.astype(float, copy=False),
+                        "disk_cache": str(cache_path),
+                    }
+                    return
+            except Exception:
+                self.logger.exception("Failed to load DE disk cache; recomputing global stats.")
 
-        if hasattr(X, "power"):
-            total_sqsum = np.asarray(X.power(2).sum(axis=0)).ravel()
+        if sp.isspmatrix_csr(X):
+            total_sum, total_sqsum = diffexpr_sum_sqsum_csr_global(X, backend="auto")
         else:
-            total_sqsum = np.asarray(np.einsum("ij,ij->j", X, X)).ravel()
+            if hasattr(X, "sum"):
+                total_sum = np.asarray(X.sum(axis=0)).ravel().astype(float, copy=False)
+            else:
+                total_sum = np.asarray(np.sum(X, axis=0)).ravel().astype(float, copy=False)
+
+            if hasattr(X, "power"):
+                total_sqsum = np.asarray(X.power(2).sum(axis=0)).ravel().astype(float, copy=False)
+            else:
+                total_sqsum = np.asarray(np.einsum("ij,ij->j", X, X)).ravel().astype(float, copy=False)
 
         self._diffexpr_global_stats = {
             "source": source,
             "n_obs": int(X.shape[0]),
             "n_vars": int(X.shape[1]),
             "var_names": var_names,
-            "sum": total_sum.astype(float, copy=False),
-            "sqsum": total_sqsum.astype(float, copy=False),
-        }           
+            "sum": total_sum,
+            "sqsum": total_sqsum,
+        }
+
+        if cache_path is not None:
+            try:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = cache_path.with_name(cache_path.name + ".tmp")
+                with tmp.open("wb") as f:
+                    np.savez(
+                        f,
+                        source=source,
+                        n_obs=int(X.shape[0]),
+                        n_vars=int(X.shape[1]),
+                        sum=self._diffexpr_global_stats["sum"],
+                        sqsum=self._diffexpr_global_stats["sqsum"],
+                    )
+                tmp.replace(cache_path)
+                self._diffexpr_global_stats["disk_cache"] = str(cache_path)
+            except Exception:
+                self.logger.exception("Failed to write DE disk cache; continuing without it.")
 
     def _compute_diffexpr(self, selected_indices: np.ndarray, selection_label: str) -> list[dict]:
         self._ensure_diffexpr_global_stats()
@@ -1401,16 +1485,21 @@ class ScSketch:
         if n1 < 2 or n2 < 2:
             return []
 
-        X1 = X[selected_indices, :]
-        if hasattr(X1, "sum"):
-            sum1 = np.asarray(X1.sum(axis=0)).ravel().astype(float, copy=False)
+        if sp.isspmatrix_csr(X):
+            sum1, sqsum1 = diffexpr_sum_sqsum_selected_csr(X, selected_indices, backend="auto")
+            sum1 = np.asarray(sum1, dtype=float).ravel()
+            sqsum1 = np.asarray(sqsum1, dtype=float).ravel()
         else:
-            sum1 = np.asarray(np.sum(X1, axis=0)).ravel().astype(float, copy=False)
+            X1 = X[selected_indices, :]
+            if hasattr(X1, "sum"):
+                sum1 = np.asarray(X1.sum(axis=0)).ravel().astype(float, copy=False)
+            else:
+                sum1 = np.asarray(np.sum(X1, axis=0)).ravel().astype(float, copy=False)
 
-        if hasattr(X1, "power"):
-            sqsum1 = np.asarray(X1.power(2).sum(axis=0)).ravel().astype(float, copy=False)
-        else:
-            sqsum1 = np.asarray(np.einsum("ij,ij->j", X1, X1)).ravel().astype(float, copy=False)
+            if hasattr(X1, "power"):
+                sqsum1 = np.asarray(X1.power(2).sum(axis=0)).ravel().astype(float, copy=False)
+            else:
+                sqsum1 = np.asarray(np.einsum("ij,ij->j", X1, X1)).ravel().astype(float, copy=False)
 
         sum2 = (total_sum - sum1).astype(float, copy=False)
         sqsum2 = (total_sqsum - sqsum1).astype(float, copy=False)

@@ -4,6 +4,19 @@ import numpy as np
 import scipy.sparse as sp
 import scipy.stats as ss
 
+try:
+    import numba as nb
+except Exception:  # pragma: no cover
+    nb = None
+
+
+def _default_gammai(N: int) -> np.ndarray:
+    return (
+        0.07720838
+        * np.log(np.maximum(np.arange(1, N + 2), 2))
+        / (np.arange(1, N + 2) * np.exp(np.sqrt(np.log(np.arange(1, N + 2)))))
+    )
+
 
 def compute_directional_analysis(df, selections, metadata_columns=None):
     """
@@ -125,7 +138,7 @@ def test_direction(X, projection):
     p = np.clip(p, 0.0, 1.0)
     return {"correlation": rs, "p_value": p}
 
-def lord_test(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005):
+def _lord_test_python(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005):
     """"
     This is a translation of "version 1" under:
 
@@ -138,11 +151,7 @@ def lord_test(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005):
     N = len(pval)
 
     if gammai is None:
-        gammai = (
-            0.07720838
-            * np.log(np.maximum(np.arange(1, N + 2), 2))
-            / (np.arange(1, N + 2) * np.exp(np.sqrt(np.log(np.arange(1, N + 2)))))
-        )
+        gammai = _default_gammai(N)
 
     # setup variables, substituting previous results if needed
     alphai = np.zeros(N)
@@ -182,3 +191,233 @@ def lord_test(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005):
             K += 1
 
     return {"p_value": pval, "alpha_i": alphai, "R": R, "tau": tau}
+
+
+if nb is not None:
+
+    @nb.njit(cache=True)
+    def _lord_update_numba(pval, alphai, R, gammai, alpha, w0, tau, tau_len, start_i, K):
+        N = pval.shape[0]
+        for i in range(start_i, N):
+            if K <= 1:
+                if R[i - 1]:
+                    tau[0] = i - 1
+                    tau_len = 1
+                Cjsum = 0.0
+                if K == 1:
+                    Cjsum = gammai[i - tau[0] - 1]
+                alphai[i] = w0 * gammai[i] + (alpha - w0) * Cjsum
+            else:
+                if R[i - 1]:
+                    # Tau can lag K by 1 if the last rejection was at i-1 (end-of-call behavior).
+                    if tau_len < K:
+                        tau[tau_len] = i - 1
+                        tau_len += 1
+                Cjsum = 0.0
+                for j in range(1, K):
+                    Cjsum += gammai[i - tau[j] - 1]
+                alphai[i] = (
+                    w0 * gammai[i]
+                    + (alpha - w0) * gammai[i - tau[0] - 1]
+                    + alpha * Cjsum
+                )
+
+            if pval[i] <= alphai[i]:
+                R[i] = True
+                K += 1
+        return tau_len, K
+
+
+def lord_test(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005, *, backend="auto"):
+    """
+    LORD++ online FDR control.
+
+    Parameters
+    ----------
+    pval:
+        1D array of p-values.
+    initial_results:
+        Previous output from `lord_test` (for incremental updates).
+    gammai:
+        LORD++ gamma sequence. If None, a default sequence is used.
+    backend:
+        "auto" (default), "python", or "numba".
+    """
+    if backend not in {"auto", "python", "numba"}:
+        raise ValueError("backend must be one of: 'auto', 'python', 'numba'.")
+
+    pval = np.asarray(pval, dtype=float).ravel()
+    N = int(pval.shape[0])
+    if gammai is None:
+        gammai = _default_gammai(N)
+    else:
+        gammai = np.asarray(gammai, dtype=float).ravel()
+
+    want_numba = backend == "numba" or (backend == "auto" and nb is not None and N >= 5000)
+    if not want_numba or nb is None:
+        return _lord_test_python(
+            pval, initial_results=initial_results, gammai=gammai, alpha=alpha, w0=w0
+        )
+
+    alphai = np.zeros(N, dtype=float)
+    R = np.zeros(N, dtype=np.bool_)
+    tau_list: list[int] = []
+    if initial_results is not None:
+        N0 = int(len(initial_results["p_value"]))
+        alphai[:N0] = np.asarray(initial_results["alpha_i"], dtype=float)
+        R[:N0] = np.asarray(initial_results["R"], dtype=np.bool_)
+        tau_list = list(initial_results.get("tau", []))
+    else:
+        N0 = 1
+        alphai[0] = float(gammai[0]) * float(w0)
+        R[0] = bool(pval[0] <= alphai[0])
+        if R[0]:
+            tau_list = [0]
+
+    K = int(np.sum(R))
+    tau = np.empty(N, dtype=np.int64)
+    tau_len = int(len(tau_list))
+    if tau_len:
+        tau[:tau_len] = np.asarray(tau_list, dtype=np.int64)
+
+    tau_len, _ = _lord_update_numba(
+        pval,
+        alphai,
+        R,
+        gammai,
+        float(alpha),
+        float(w0),
+        tau,
+        tau_len,
+        int(N0),
+        int(K),
+    )
+    return {"p_value": pval, "alpha_i": alphai, "R": R, "tau": tau[:tau_len].tolist()}
+
+
+def _sanitize_selected_indices(selected_indices, n_obs: int) -> np.ndarray:
+    idx = np.asarray(selected_indices, dtype=np.int64).ravel()
+    idx = idx[(idx >= 0) & (idx < int(n_obs))]
+    if idx.size == 0:
+        return idx
+    return np.unique(idx)
+
+
+if nb is not None:
+
+    @nb.njit(cache=True)
+    def _diffexpr_sum_sqsum_csr_numba(indptr, indices, data, sel, n_vars):
+        sum1 = np.zeros(n_vars, dtype=np.float64)
+        sqsum1 = np.zeros(n_vars, dtype=np.float64)
+        for k in range(sel.size):
+            r = sel[k]
+            start = indptr[r]
+            stop = indptr[r + 1]
+            for j in range(start, stop):
+                c = indices[j]
+                v = data[j]
+                sum1[c] += v
+                sqsum1[c] += v * v
+        return sum1, sqsum1
+
+
+def diffexpr_sum_sqsum_selected_csr(X, selected_indices, *, backend="auto") -> tuple[np.ndarray, np.ndarray]:
+    """
+    Compute per-gene sum and sum-of-squares for a selected set of rows in a CSR matrix.
+
+    This is used by scSketch's differential expression mode (Welch t-test from summary stats).
+    The computation is mathematically identical to:
+      - sum1 = X1.sum(axis=0)
+      - sqsum1 = X1.power(2).sum(axis=0)
+    where X1 = X[selected_indices, :], but avoids materializing X1 and can compute both
+    reductions in one pass over the selected rows.
+
+    Parameters
+    ----------
+    X:
+        SciPy CSR matrix.
+    selected_indices:
+        1D array-like of row indices (cells) to include.
+    backend:
+        "auto" (default), "python", or "numba".
+    """
+    if backend not in {"auto", "python", "numba"}:
+        raise ValueError("backend must be one of: 'auto', 'python', 'numba'.")
+    if not sp.isspmatrix_csr(X):
+        raise TypeError("X must be a SciPy CSR matrix.")
+
+    n_obs, n_vars = map(int, X.shape)
+    sel = _sanitize_selected_indices(selected_indices, n_obs)
+    if sel.size == 0:
+        z = np.zeros((n_vars,), dtype=float)
+        return z, z.copy()
+
+    want_numba = backend == "numba" or (backend == "auto" and nb is not None and sel.size >= 5000)
+    if want_numba and nb is not None:
+        return _diffexpr_sum_sqsum_csr_numba(X.indptr, X.indices, X.data, sel, n_vars)
+
+    sum1 = np.zeros((n_vars,), dtype=np.float64)
+    sqsum1 = np.zeros((n_vars,), dtype=np.float64)
+    indptr = X.indptr
+    indices = X.indices
+    data = X.data
+    for r in sel:
+        start = indptr[r]
+        stop = indptr[r + 1]
+        cols = indices[start:stop]
+        vals = np.asarray(data[start:stop]).astype(np.float64, copy=False)
+        sum1[cols] += vals
+        sqsum1[cols] += vals * vals
+    return sum1, sqsum1
+
+
+if nb is not None:
+
+    @nb.njit(cache=True)
+    def _diffexpr_sum_sqsum_csr_global_numba(indices, data, n_vars):
+        total_sum = np.zeros(n_vars, dtype=np.float64)
+        total_sqsum = np.zeros(n_vars, dtype=np.float64)
+        for k in range(data.size):
+            c = indices[k]
+            v = data[k]
+            total_sum[c] += v
+            total_sqsum[c] += v * v
+        return total_sum, total_sqsum
+
+
+def diffexpr_sum_sqsum_csr_global(X, *, backend="auto") -> tuple[np.ndarray, np.ndarray]:
+    """
+    Compute per-gene global sum and sum-of-squares over all rows in a CSR matrix.
+
+    This is used to precompute global summary statistics for scSketch's differential
+    expression mode (Welch t-test from summary stats). It is mathematically identical to:
+      - total_sum = X.sum(axis=0)
+      - total_sqsum = X.power(2).sum(axis=0)
+    but avoids materializing `X.power(2)` by computing both reductions in a single pass
+    over CSR storage.
+
+    Parameters
+    ----------
+    X:
+        SciPy CSR matrix.
+    backend:
+        "auto" (default), "python", or "numba".
+    """
+    if backend not in {"auto", "python", "numba"}:
+        raise ValueError("backend must be one of: 'auto', 'python', or 'numba'.")
+    if not sp.isspmatrix_csr(X):
+        raise TypeError("X must be a SciPy CSR matrix.")
+
+    n_obs, n_vars = map(int, X.shape)
+    if n_obs == 0 or n_vars == 0 or int(getattr(X, "nnz", 0)) == 0:
+        z = np.zeros((n_vars,), dtype=float)
+        return z, z.copy()
+
+    nnz = int(getattr(X, "nnz", 0) or 0)
+    want_numba = backend == "numba" or (backend == "auto" and nb is not None and nnz >= 1_000_000)
+    if want_numba and nb is not None:
+        return _diffexpr_sum_sqsum_csr_global_numba(X.indices, X.data, n_vars)
+
+    total_sum = np.asarray(X.sum(axis=0)).ravel().astype(float, copy=False)
+    total_sqsum = np.asarray(X.power(2).sum(axis=0)).ravel().astype(float, copy=False)
+    return total_sum, total_sqsum

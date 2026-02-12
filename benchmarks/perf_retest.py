@@ -27,7 +27,17 @@ import anndata as ad
 import scipy.sparse as sp
 import scipy.stats as ss
 
-from scsketch.analysis import lord_test, test_direction
+try:
+    import numba as nb
+except Exception:  # pragma: no cover
+    nb = None
+
+from scsketch.analysis import (
+    diffexpr_sum_sqsum_csr_global,
+    diffexpr_sum_sqsum_selected_csr,
+    lord_test,
+    test_direction,
+)
 
 
 @dataclass(frozen=True)
@@ -202,8 +212,11 @@ def de_global_stats(X) -> dict:
             "in the current environment. Load the .h5ad in-memory (do not use backed='r')."
         )
     if sp.issparse(X):
-        total_sum = np.asarray(X.sum(axis=0)).ravel()
-        total_sqsum = np.asarray(X.power(2).sum(axis=0)).ravel()
+        if sp.isspmatrix_csr(X):
+            total_sum, total_sqsum = diffexpr_sum_sqsum_csr_global(X, backend="auto")
+        else:
+            total_sum = np.asarray(X.sum(axis=0)).ravel()
+            total_sqsum = np.asarray(X.power(2).sum(axis=0)).ravel()
     elif type(X).__module__.startswith("h5py"):
         # Chunked reduction to avoid materializing large dense arrays and to
         # support h5py.Dataset, which does not behave like a NumPy array in all ops.
@@ -246,16 +259,21 @@ def de_compute_from_stats(
     if n1 < 2 or n2 < 2:
         return np.zeros((int(X.shape[1]),), dtype=float), np.ones((int(X.shape[1]),), dtype=float)
 
-    X1 = take_rows(X, sel)
-    if hasattr(X1, "sum"):
-        sum1 = np.asarray(X1.sum(axis=0)).ravel().astype(float, copy=False)
+    if sp.isspmatrix_csr(X):
+        sum1, sqsum1 = diffexpr_sum_sqsum_selected_csr(X, sel, backend="auto")
+        sum1 = np.asarray(sum1, dtype=float).ravel()
+        sqsum1 = np.asarray(sqsum1, dtype=float).ravel()
     else:
-        sum1 = np.asarray(np.sum(X1, axis=0)).ravel().astype(float, copy=False)
+        X1 = take_rows(X, sel)
+        if hasattr(X1, "sum"):
+            sum1 = np.asarray(X1.sum(axis=0)).ravel().astype(float, copy=False)
+        else:
+            sum1 = np.asarray(np.sum(X1, axis=0)).ravel().astype(float, copy=False)
 
-    if hasattr(X1, "power"):
-        sqsum1 = np.asarray(X1.power(2).sum(axis=0)).ravel().astype(float, copy=False)
-    else:
-        sqsum1 = np.asarray(np.square(np.asarray(X1, dtype=float)).sum(axis=0)).ravel().astype(float, copy=False)
+        if hasattr(X1, "power"):
+            sqsum1 = np.asarray(X1.power(2).sum(axis=0)).ravel().astype(float, copy=False)
+        else:
+            sqsum1 = np.asarray(np.square(np.asarray(X1, dtype=float)).sum(axis=0)).ravel().astype(float, copy=False)
 
     sum2 = (total_sum - sum1).astype(float, copy=False)
     sqsum2 = (total_sqsum - sqsum1).astype(float, copy=False)

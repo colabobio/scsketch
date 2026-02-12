@@ -1,6 +1,20 @@
 # scSketch project
 
-scSketch is an interactive exploration tool of single-cell embeddings (UMAP, tSNE, etc.) for Python notebooks. It is based on the [jupyter-scatter widget](https://jupyter-scatter.dev/) by [Fritz Lekschas](https://lekschas.de/) and it reimplements the earlier [SCIViwewer visualizer](https://github.com/colabobio/sciviewer).
+scSketch is an interactive exploration tool of single-cell embeddings (UMAP, tSNE, etc.) for Python notebooks. It is based on the [jupyter-scatter widget](https://jupyter-scatter.dev/) by [Fritz Lekschas](https://lekschas.de/) and it reimplements the earlier [SciViewer visualizer](https://github.com/colabobio/sciviewer).
+
+<p align="center">
+  <img src="docs/assets/dir_analysis_demo.gif" alt="scSketch directional analysis demo" width="900" />
+</p>
+<p align="center">
+  <em>Directional sketch → compute directional analysis → click a gene for pathway context.</em>
+</p>
+
+<p align="center">
+  <img src="docs/assets/diff_exp_analysis_demo.gif" alt="scSketch differential expression demo" width="900" />
+</p>
+<p align="center">
+  <em>Select two groups → compute differential expression → browse results.</em>
+</p>
 
 ## Usage
 
@@ -62,6 +76,16 @@ sketch = ScSketch(
 # If this isn't the last line in the cell, use: `from IPython.display import display; display(sketch.show())`
 sketch.show()
 ```
+
+**Directional Search: keep brush selections roughly linear**
+
+Directional Search reduces your selection to a 1D “along-the-sketch” axis by projecting cells onto a single direction vector. If your brush selection is very curved, loops back, or spans multiple branches/blobs, that 1D projection can mix multiple directions of variation and produce hard-to-interpret results.
+
+Practical tips:
+
+- Sketch along one clear gradient at a time (a selection closer to a straight line works best).
+- If the trajectory bends, split it into multiple shorter selections and compare results.
+
 
 **Gene IDs vs gene symbols**
 
