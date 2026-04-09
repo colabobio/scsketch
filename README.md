@@ -49,11 +49,31 @@ See the demo notebook for more details
 
 ### Use scSketch in your own notebook
 
-Install scSketch into the environment backing your Jupyter kernel:
+scSketch requires **Python 3.12 or later**. Before installing, make sure your environment meets this requirement:
 
 ```bash
-python -m pip install scsketch
+python --version   # should print Python 3.12.x or higher
 ```
+
+If you are using conda and need to create or upgrade an environment:
+
+```bash
+# Create a new environment with the right Python version
+conda create -n my-env python=3.12
+conda activate my-env
+```
+
+Then install scSketch into the environment backing your Jupyter kernel:
+
+```bash
+pip install scsketch
+```
+
+> **Note:** If you install scSketch into a conda environment, make sure you also have JupyterLab installed *in that same environment* so the kernel picks up the right packages:
+> ```bash
+> pip install jupyterlab
+> jupyter lab
+> ```
 
 Then in a notebook:
 
@@ -102,6 +122,39 @@ adata_view.var_names_make_unique()
 sketch = ScSketch(adata=adata_view, metadata_cols=["louvain"], color_by_default="louvain")
 sketch.show()
 ```
+
+### Using scSketch with uv / uvx
+
+[uv](https://docs.astral.sh/uv/) is a fast Python package manager. If you are already using it, here are the recommended ways to integrate scSketch.
+
+**Add to an existing `uv` project:**
+
+```bash
+uv add scsketch
+uv run jupyter lab
+```
+
+**Standalone notebook with `juv`:**
+
+[juv](https://github.com/manzt/juv) runs notebooks in isolated environments defined by inline metadata — no `pyproject.toml` needed.
+
+```bash
+# Add scsketch to an existing notebook (writes inline dependency metadata)
+uvx juv add my_notebook.ipynb scsketch
+
+# Launch it in an auto-provisioned environment
+uvx juv run my_notebook.ipynb
+```
+
+The notebook becomes fully self-contained and reproducible: anyone with `juv` can run it without any prior setup.
+
+**Try the built-in demo without installing anything:**
+
+```bash
+uvx scsketch demo
+```
+
+This uses `uvx` to run scSketch ephemerally — nothing is permanently installed in your environment.
 
 ### Running the original notebook with juv
 
