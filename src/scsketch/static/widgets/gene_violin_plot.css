@@ -1,0 +1,11 @@
+.gene-violin-plot {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+}
+
+.gene-violin-plot canvas {
+  width: 100%;
+  display: block;
+}

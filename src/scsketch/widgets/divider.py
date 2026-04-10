@@ -14,5 +14,6 @@ _STATIC = Path(__file__).parent.parent / "static" / "widgets"
 
 class Div(AnyWidget):
     _esm = _STATIC / "divider.js"
+    _css = _STATIC / "divider.css"
 
     style = Dict({}).tag(sync=True)

@@ -1,0 +1,12 @@
+.gene-projection-plot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  overflow: auto;
+}
+
+.gene-projection-plot canvas {
+  width: 100%;
+  display: block;
+}

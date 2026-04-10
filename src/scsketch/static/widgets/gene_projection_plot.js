@@ -1,7 +1,5 @@
 function render({ model, el }) {
-  el.style.display = "flex";
-  el.style.flexDirection = "column";
-  el.style.alignItems = "center";
+  el.classList.add("gene-projection-plot");
 
   const canvas = document.createElement("canvas");
   el.appendChild(canvas);
@@ -30,11 +28,9 @@ function render({ model, el }) {
     let targetHeight = Math.min(parentH * 0.95, r.width * baseAspect);
     targetHeight = Math.max(180, targetHeight);
 
-    canvas.style.width = "100%";
     canvas.style.height = `${targetHeight}px`;
     el.style.height = `${targetHeight + 10}px`;
     el.style.maxHeight = `${targetHeight + 50}px`;
-    el.style.overflow = "auto";
 
     const cssW = canvas.clientWidth;
     const cssH = canvas.clientHeight;

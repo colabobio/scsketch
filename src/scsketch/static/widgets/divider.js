@@ -1,4 +1,5 @@
 function render({ model, el }) {
+  el.classList.add("scsketch-divider");
   const div = document.createElement("div");
   div.classList.add(
     'jupyter-widgets',

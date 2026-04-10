@@ -15,6 +15,7 @@ class GeneViolinPlot(AnyWidget):
     """
 
     _esm = _STATIC / "gene_violin_plot.js"
+    _css = _STATIC / "gene_violin_plot.css"
 
     data = Dict(default_value={}).tag(sync=True)
     gene = Unicode("").tag(sync=True)

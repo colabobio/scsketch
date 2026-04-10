@@ -1,8 +1,5 @@
 function render({ model, el }) {
-  el.style.display = "flex";
-  el.style.flexDirection = "column";
-  el.style.alignItems = "stretch";
-  el.style.width = "100%";
+  el.classList.add("gene-violin-plot");
 
   const canvas = document.createElement("canvas");
   canvas.style.width = "100%";
