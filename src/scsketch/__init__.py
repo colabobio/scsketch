@@ -15,10 +15,16 @@ from .widgets import (
     Div,
     GenePathwayWidget,
 )
-from .utils import Selection, Selections, Lasso, create_selection, fetch_pathways
-from .analysis import compute_directional_analysis
+from ._utils import Selection, Selections, Lasso, create_selection
+from ._api import fetch_pathways
+from ._analysis import compute_directional_analysis
 
-__version__ = "0.1.0"
+try:
+    from importlib.metadata import version, PackageNotFoundError
+
+    __version__ = version("scsketch")
+except PackageNotFoundError:
+    __version__ = "0.1.0"  # fallback during development before install
 
 __all__ = [
     "ScSketch",

@@ -49,17 +49,17 @@ See the demo notebook for more details
 
 ### Use scSketch in your own notebook
 
-scSketch requires **Python 3.12 or later**. Before installing, make sure your environment meets this requirement:
+scSketch requires **Python 3.10 or later**. Before installing, make sure your environment meets this requirement:
 
 ```bash
-python --version   # should print Python 3.12.x or higher
+python --version   # should print Python 3.10.x or higher
 ```
 
 If you are using conda and need to create or upgrade an environment:
 
 ```bash
 # Create a new environment with the right Python version
-conda create -n my-env python=3.12
+conda create -n my-env python=3.10
 conda activate my-env
 ```
 
@@ -67,6 +67,14 @@ Then install scSketch into the environment backing your Jupyter kernel:
 
 ```bash
 pip install scsketch
+```
+
+**Optional: Numba-accelerated kernels (`[fast]` extra)**
+
+Differential expression computations can be significantly accelerated by [Numba](https://numba.pydata.org/). Numba is an optional dependency — scSketch works without it, but automatically uses it when available. To install with Numba:
+
+```bash
+pip install "scsketch[fast]"
 ```
 
 > **Note:** If you install scSketch into a conda environment, make sure you also have JupyterLab installed *in that same environment* so the kernel picks up the right packages:
@@ -130,7 +138,8 @@ sketch.show()
 **Add to an existing `uv` project:**
 
 ```bash
-uv add scsketch
+uv add scsketch          # base install
+uv add "scsketch[fast]"  # with Numba-accelerated kernels (recommended)
 uv run jupyter lab
 ```
 
@@ -140,7 +149,7 @@ uv run jupyter lab
 
 ```bash
 # Add scsketch to an existing notebook (writes inline dependency metadata)
-uvx juv add my_notebook.ipynb scsketch
+uvx juv add my_notebook.ipynb "scsketch[fast]"
 
 # Launch it in an auto-provisioned environment
 uvx juv run my_notebook.ipynb
@@ -220,7 +229,7 @@ Or with editable installs:
 ```sh
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,fast]"
 jupyter lab demo.ipynb
 ```
 

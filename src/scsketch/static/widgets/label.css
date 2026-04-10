@@ -1,0 +1,16 @@
+.jupyter-scatter-label {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: var(--jp-widgets-inline-height);
+  padding: var(--jp-widgets-input-padding) calc(var(--jp-widgets-input-padding) * 2);
+  border-top-left-radius: var(--jp-border-radius);
+  border-top-right-radius: 0;
+  border-bottom-left-radius: var(--jp-border-radius);
+  border-bottom-right-radius: 0;
+}
+.jupyter-scatter-label:focus {
+  font-weight: bold;
+  outline: 1px solid var(--jp-widgets-input-focus-border-color);
+  outline-offset: 1px;
+}
