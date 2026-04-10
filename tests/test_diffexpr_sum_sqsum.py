@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.sparse as sp
 
-from scsketch.analysis import diffexpr_sum_sqsum_selected_csr
+from scsketch._analysis import diffexpr_sum_sqsum_selected_csr
 
 
 def _baseline_sum_sqsum(X: sp.csr_matrix, sel: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
