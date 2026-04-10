@@ -15,9 +15,9 @@ from .widgets import (
     Div,
     GenePathwayWidget,
 )
-from .utils import Selection, Selections, Lasso, create_selection
+from ._utils import Selection, Selections, Lasso, create_selection
 from ._api import fetch_pathways
-from .analysis import compute_directional_analysis
+from ._analysis import compute_directional_analysis
 
 try:
     from importlib.metadata import version, PackageNotFoundError

@@ -17,7 +17,7 @@ import scipy.sparse as sp
 import scipy.stats as ss
 from anndata import AnnData
 
-from .analysis import (
+from ._analysis import (
     diffexpr_sum_sqsum_selected_csr,
     diffexpr_sum_sqsum_csr_global,
 )

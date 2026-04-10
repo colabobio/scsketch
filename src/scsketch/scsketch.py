@@ -37,14 +37,14 @@ from ._data import build_embedding_df
 from ._diffexpr import DiffExprEngine
 from ._ui import UIControls, build_controls, set_analysis_progress, clear_analysis_progress
 from ._results import show_directional_results, show_diffexpr_results, clear_results
-from .utils import (
+from ._utils import (
     Lasso,
     Selection,
     Selections,
     points_in_polygon,
     split_line_equidistant,
 )
-from .analysis import (
+from ._analysis import (
     test_direction,
     lord_test,
 )
