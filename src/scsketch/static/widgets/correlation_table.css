@@ -1,0 +1,29 @@
+.ct-search-input {
+  width: 100%;
+  padding: 8px;
+  margin-bottom: 8px;
+  box-sizing: border-box;
+}
+
+.correlation-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  table-layout: fixed;
+}
+.correlation-table th,
+.correlation-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.correlation-table th {
+  background-color: #333;
+  color: white;
+}
+.correlation-table tr:hover {
+  background-color: #eee;
+}

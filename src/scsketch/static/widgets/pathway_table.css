@@ -1,0 +1,18 @@
+.pathway-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+.pathway-table th,
+.pathway-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+}
+.pathway-table th {
+  background-color: #555;
+  color: white;
+}
+.pathway-table tr:hover {
+  background-color: #f2f2f2;
+}

@@ -4,31 +4,15 @@ Adapted from the dimbridge notebook in jupyter-scatter:
 https://github.com/flekschas/jupyter-scatter/blob/main/notebooks/dimbridge.ipynb
 """
 
+from pathlib import Path
+
 from anywidget import AnyWidget
 from traitlets import Dict
 
+_STATIC = Path(__file__).parent.parent / "static" / "widgets"
+
+
 class Div(AnyWidget):
-    _esm = """
-    function render({ model, el }) {
-      const div = document.createElement("div");
-      div.classList.add(
-        'jupyter-widgets',
-        'jupyter-scatter-div'
-      );
-      
-      const update = () => {
-        for (const [key, value] of Object.entries(model.get('style'))) {
-          div.style[key] = value;
-        }
-      }
-      
-      model.on('change', update);
-
-      update();
-
-      el.appendChild(div);
-    }
-    export default { render };
-    """
+    _esm = _STATIC / "divider.js"
 
     style = Dict({}).tag(sync=True)

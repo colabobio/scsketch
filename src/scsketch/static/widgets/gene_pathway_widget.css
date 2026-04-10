@@ -1,0 +1,30 @@
+.gene-pathway-widget {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px;
+}
+
+.gene-pathway-widget select {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 13px;
+  /* Explicit colours so the widget works in both light and dark JupyterLab themes */
+  background-color: #ffffff;
+  color: #111111;
+  border: 1px solid #cccccc;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.gene-pathway-widget select option {
+  background-color: #ffffff;
+  color: #111111;
+}
+
+.gene-pathway-widget img {
+  width: 100%;
+  border: 1px solid #dddddd;
+  border-radius: 4px;
+  margin-top: 4px;
+}
