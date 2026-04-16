@@ -24,7 +24,7 @@ try:
 
     __version__ = version("scsketch")
 except PackageNotFoundError:
-    __version__ = "0.2.0"  # fallback during development before install
+    __version__ = "0.2.1"  # fallback during development before install
 
 __all__ = [
     "ScSketch",
