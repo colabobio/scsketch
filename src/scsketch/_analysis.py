@@ -80,6 +80,8 @@ def test_direction(X, projection):
     """Compute per-gene correlation/p-values against a 1D projection.
 
     This is implemented to avoid densifying `X` when it is sparse (common for scRNA-seq).
+    Genes whose selected-cell total expression is zero are explicitly excluded,
+    matching sciviewer's directional-analysis guard.
     """
     projection = np.asarray(projection, dtype=float).ravel()
     n = int(projection.shape[0])
@@ -119,8 +121,16 @@ def test_direction(X, projection):
         if int(X.shape[0]) != n:
             raise ValueError("X and projection must have the same number of rows.")
 
+        sum_x = np.sum(X, axis=0, dtype=float)
         std_x = np.std(X, axis=0, ddof=1)
         cov = (pc @ X) / (n - 1)
+
+    valid = sum_x > 0.0
+    if not np.any(valid):
+        return {
+            "correlation": np.zeros(n_genes, dtype=float),
+            "p_value": np.ones(n_genes, dtype=float),
+        }
 
     denom = std_pc * std_x
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -128,6 +138,7 @@ def test_direction(X, projection):
 
     rs = np.nan_to_num(rs, nan=0.0, posinf=0.0, neginf=0.0)
     rs = np.clip(rs, -1.0, 1.0)
+    rs = np.where(valid, rs, 0.0)
 
     df = n - 2
     with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
@@ -136,6 +147,7 @@ def test_direction(X, projection):
 
     p = np.nan_to_num(p, nan=1.0, posinf=1.0, neginf=1.0)
     p = np.clip(p, 0.0, 1.0)
+    p = np.where(valid, p, 1.0)
     return {"correlation": rs, "p_value": p}
 
 def _lord_test_python(pval, initial_results=None, gammai=None, alpha=0.05, w0=0.005):
