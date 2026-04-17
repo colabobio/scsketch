@@ -83,6 +83,13 @@ Homepage = "https://github.com/colabobio/scsketch"
 Repository = "https://github.com/colabobio/scsketch"
 "Bug Tracker" = "https://github.com/colabobio/scsketch/issues"
 
+[tool.hatch.build.targets.sdist]
+only-include = [
+   "/src",
+   "/README.md",
+   "/ARCHITECTURE.md"
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/scsketch"]
 

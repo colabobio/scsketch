@@ -57,3 +57,6 @@ AGENT.md
 
 # Lock files
 uv.lock
+
+# UV cache
+.uv-cache/
