@@ -25,7 +25,7 @@ from typing import Optional, List
 
 import ipywidgets as ipyw
 from ipywidgets import GridBox, Layout
-from jscatter import Scatter, okabe_ito, Line
+from jscatter import okabe_ito, Line
 from jscatter.widgets import Button
 from matplotlib.colors import to_hex
 from scipy.spatial import ConvexHull
@@ -33,6 +33,7 @@ from scipy.spatial import ConvexHull
 from anndata import AnnData
 
 from ._logging import LogLevel, configure_logging
+from ._scatter import ScScatter
 from ._data import build_embedding_df
 from ._diffexpr import DiffExprEngine
 from ._ui import UIControls, build_controls, set_analysis_progress, clear_analysis_progress
@@ -146,17 +147,16 @@ class ScSketch:
         )
 
         # -- Build scatter plot --------------------------------------------
-        self.scatter = Scatter(
+        self.scatter = ScScatter(
             data=self.df,
             x="x",
             y="y",
+            # scSketch defaults (axes=False, background_color, tooltip=True,
+            # legend=False) are applied by ScScatter automatically.
             background_color=self.background_color,
-            axes=False,
             height=self.height,
             color_by=self.color_by_default,
             color_map=self.color_map_default,
-            tooltip=True,
-            legend=False,
             tooltip_properties=[c for c in self.df.columns if c in self.meta_cols_present],
         )
         self.scatter.widget.color_selected = "#00dadb"
