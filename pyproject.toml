@@ -83,6 +83,17 @@ Homepage = "https://github.com/colabobio/scsketch"
 Repository = "https://github.com/colabobio/scsketch"
 "Bug Tracker" = "https://github.com/colabobio/scsketch/issues"
 
+# uv-only resolution constraints.
+# llvmlite dropped pre-built wheels for x86_64 macOS starting at 0.44.0 — only
+# source tarballs are published from that version onward for that platform, and
+# building from source requires system LLVM headers (which most users won't have).
+# Capping at <0.44.0 lets uv pick 0.43.x which ships a proper wheel.
+# This section is silently ignored by pip, so it has no effect on end-users.
+[tool.uv]
+constraint-dependencies = [
+    "llvmlite<0.44.0; platform_machine == 'x86_64' and sys_platform == 'darwin'",
+]
+
 [tool.hatch.build.targets.sdist]
 only-include = [
    "/src",
