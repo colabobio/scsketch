@@ -26,9 +26,9 @@ The easiest way to try scSketch is with the built-in demo (no installation requi
 uvx scsketch demo
 ```
 
-This single command will automatically install scSketch and all dependencies, then launch the demo notebook.
+This single command will automatically install scSketch and all dependencies in an ephemeral environment, then launch the demo notebook. It requires [uv](https://docs.astral.sh/uv/), which is a fast Python package manager.
 
-Alternatively, if you've cloned the repository, you can run the demo notebook directly with juv:
+Alternatively, if you've cloned the repository, you can run the demo notebook directly with [juv](https://github.com/manzt/juv):
 
 ```bash
 git clone https://github.com/colabobio/scsketch.git
@@ -133,7 +133,7 @@ sketch.show()
 
 ### Using scSketch with uv / uvx
 
-[uv](https://docs.astral.sh/uv/) is a fast Python package manager. If you are already using it, here are the recommended ways to integrate scSketch.
+Here are the recommended ways to integrate scSketch when using uv / uvx.
 
 **Add to an existing `uv` project:**
 
