@@ -1,6 +1,6 @@
 # scSketch project
 
-scSketch is an interactive exploration tool of single-cell embeddings (UMAP, tSNE, etc.) for Python notebooks. It is based on the [jupyter-scatter widget](https://jupyter-scatter.dev/) by [Fritz Lekschas](https://lekschas.de/) and it reimplements the earlier [SciViewer visualizer](https://github.com/colabobio/sciviewer).
+scSketch is an interactive exploration tool of single-cell embeddings (UMAP, tSNE, etc.) for Python notebooks. It is based on the [jupyter-scatter widget](https://jupyter-scatter.dev/) by [Fritz Lekschas](https://lekschas.de/) and it reimplements some features of the earlier [SciViewer visualizer](https://github.com/colabobio/sciviewer). scSketch allows users to explore embeddings by selecting linear directions and cells of interest to see the genes/proteins that are changing the most among the selected cells and direction. It then allows users to see what biological pathways the genes/proteins are a part of (by connecting to Reactome database) and provides users with the diagram of biological pathways where users can see their gene/protein of interest and what other genes/proteins/molecules they interact with. The widget can handle millions of points and supports view linking.
 
 <p align="center">
   <img src="docs/assets/dir_analysis_demo.gif" alt="scSketch directional analysis demo" width="900" />
