@@ -146,31 +146,25 @@ def show_directional_results(
             selected_indices = sel.points
             log(f"[plot] selection name={sel.name!r} n={len(selected_indices)}")
 
-            X_umap = df[["x", "y"]].to_numpy(dtype=float)
-            Ux = X_umap[:, 0] - X_umap[:, 0].min()
-            Uy = X_umap[:, 1] - X_umap[:, 1].min()
-            px = float(np.ptp(Ux)) or 1.0
-            py = float(np.ptp(Uy)) or 1.0
-            U = np.c_[Ux / px, Uy / py]
-            U_sel = U[selected_indices]
-
-            dirv = U_sel[-1] - U_sel[0]
-            L2 = float(np.dot(dirv, dirv))
-            if L2 <= 1e-15:
-                pts = df.iloc[selected_indices][["x", "y"]].to_numpy(dtype=float)
-                v = pts[-1] - pts[0]
-                nv = np.linalg.norm(v)
-                if nv <= 1e-15:
-                    log("Degenerate selection; skipping plot.")
-                    return
-                v = v / nv
-                proj = np.dot(pts - pts[0], v)
-                span = float(proj.max() - proj.min()) or 1.0
-                proj = (proj - proj.min()) / span
+            pts = df.iloc[selected_indices][["x", "y"]].to_numpy(dtype=float)
+            path = None if sel.path is None else np.asarray(sel.path, dtype=float)
+            if path is not None and path.shape[0] >= 2:
+                start_point = path[0]
+                end_point = path[-1]
             else:
-                celv = U_sel - U_sel[0]
-                proj = (celv @ dirv) / (L2 + 1e-12)
-                proj = np.clip(np.nan_to_num(proj, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0)
+                start_point = pts[0]
+                end_point = pts[-1]
+
+            v = end_point - start_point
+            nv = np.linalg.norm(v)
+            if nv <= 1e-15:
+                log("Degenerate selection; skipping plot.")
+                return
+
+            v = v / nv
+            proj = np.dot(pts - start_point, v)
+            span = float(proj.max() - proj.min()) or 1.0
+            proj = (proj - proj.min()) / span
 
             if gene in df.columns:
                 expr = pd.to_numeric(df.iloc[selected_indices][gene], errors="coerce").to_numpy(dtype=float)
