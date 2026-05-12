@@ -71,7 +71,8 @@ All UI state lives on a `ScSketch` instance:
   - Returns a list of per-selection result lists (one entry per selection).
 - Rendering happens in `_results.show_directional_results(...)`:
   - Stateless function — takes results + widget refs, builds the gene table, and wires gene-click handlers.
-  - Gene click renders a `GeneProjectionPlot` widget for the active selection; expression is loaded for the selected cells only.
+  - Gene click recolors the main embedding by full-dataset expression using a blue-to-green continuous gradient.
+  - The same gene click also renders a `GeneProjectionPlot` widget for the active selection; expression is loaded for the selected cells only.
 - Differential compute is owned by `DiffExprEngine` (`_diffexpr.py`):
   - Uses `adata.raw.X` if present, else `adata.X`.
   - Compares selected cells vs all non-selected cells using Welch t-test computed from summary stats.
@@ -84,7 +85,7 @@ All UI state lives on a `ScSketch` instance:
     `_analysis.diffexpr_sum_sqsum_selected_csr` (Numba-accelerated when the `[fast]` extra is installed;
     pure-NumPy fallback otherwise).
 - Differential rendering happens in `_results.show_diffexpr_results(...)`:
-  - Stateless function — renders a table with `T` and `p`, wires gene-click to a `GeneViolinPlot` widget.
+  - Stateless function — renders a table with `T` and `p`, wires gene-click to both embedding recoloring and a `GeneViolinPlot` widget.
 
 ## Widgets
 

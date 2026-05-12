@@ -42,6 +42,7 @@ def show_directional_results(
     df: pd.DataFrame,
     adata: AnnData,
     active_selection,           # Selection | None
+    on_gene_selected: Optional[Callable[[str], None]],
     on_results_cleared: Callable,
     log: Callable,
 ) -> None:
@@ -64,6 +65,8 @@ def show_directional_results(
         The AnnData object (for gene expression when not in ``df``).
     active_selection:
         Currently focused selection (may be ``None``).
+    on_gene_selected:
+        Optional callback invoked before rendering gene-specific secondary views.
     on_results_cleared:
         Callback invoked when the user clicks *Clear Results*.
     log:
@@ -122,6 +125,9 @@ def show_directional_results(
         gene = change["new"]
         log(f"[UI] gene clicked: {gene!r}")
         try:
+            if on_gene_selected is not None:
+                on_gene_selected(gene)
+
             pathways = fetch_pathways(gene)
             pathway_table_widget.data = pathways
             pathway_table_container.layout.display = "block"
@@ -232,6 +238,7 @@ def show_diffexpr_results(
     de_source_fn: Callable,      # () -> (X, var_names, source_tag)
     active_selection,            # Selection | None
     scatter,                     # Scatter | None
+    on_gene_selected: Optional[Callable[[str], None]],
     log: Callable,
 ) -> None:
     """Populate the sidebar with differential expression results and violin plots.
@@ -257,6 +264,8 @@ def show_diffexpr_results(
         Currently focused selection.
     scatter:
         The jscatter Scatter instance (for fallback selection lookup).
+    on_gene_selected:
+        Optional callback invoked before rendering gene-specific secondary views.
     log:
         Debug logging callable.
     """
@@ -311,6 +320,9 @@ def show_diffexpr_results(
         if not gene:
             return
         try:
+            if on_gene_selected is not None:
+                on_gene_selected(gene)
+
             X, var_names, _ = de_source_fn()
             if gene not in var_names:
                 return
