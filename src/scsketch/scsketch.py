@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import scipy.sparse as sp
 from pathlib import Path
 from typing import Optional, List
 
@@ -204,6 +205,7 @@ class ScSketch:
             df=self.df,
             adata=self.adata,
             active_selection=self.active_selection,
+            on_gene_selected=self._color_embedding_by_gene,
             on_results_cleared=self._clear_predicates,
             log=self._log,
         )
@@ -220,6 +222,7 @@ class ScSketch:
             de_source_fn=self._de_engine.de_source,
             active_selection=self.active_selection,
             scatter=self.scatter,
+            on_gene_selected=self._color_embedding_by_gene,
             log=self._log,
         )
 
@@ -231,6 +234,50 @@ class ScSketch:
             ctrl.reactome_diagram_container,
             message=message,
         )
+
+    def _gene_expression_color_map(self, steps: int = 256) -> list[str]:
+        """Return a dense blue-to-green gradient for expression coloring."""
+        steps = max(2, int(steps))
+        blue = np.array([0.0, 0.0, 1.0])
+        green = np.array([0.0, 1.0, 0.0])
+        return [
+            to_hex(blue + (green - blue) * t)
+            for t in np.linspace(0.0, 1.0, steps)
+        ]
+
+    def _color_embedding_by_gene(self, gene: str):
+        """Recolor the full embedding by expression of the selected gene."""
+        if not gene:
+            return
+
+        if gene in self.df.columns:
+            expr = pd.to_numeric(self.df[gene], errors="coerce").to_numpy(dtype=float)
+        else:
+            sub = self.adata[:, [gene]].X
+            if sp.issparse(sub):
+                sub = sub.toarray()
+            expr = np.asarray(sub, dtype=float).ravel()
+
+        finite = np.isfinite(expr)
+        if not finite.any():
+            self._log(f"[color] {gene!r}: no finite expression values; skipping recolor")
+            return
+        if not finite.all():
+            expr = expr.copy()
+            expr[~finite] = float(np.median(expr[finite]))
+
+        vmin = float(expr.min())
+        vmax = float(expr.max())
+        if vmax <= vmin:
+            vmax = vmin + 1e-6
+
+        self.scatter.color(
+            by=expr,
+            map=self._gene_expression_color_map(),
+            norm=(vmin, vmax),
+            labeling={"minValue": "Low", "maxValue": "High", "variable": gene},
+        )
+        self._log(f"[color] recolored embedding for gene {gene!r} range=[{vmin:.4g}, {vmax:.4g}]")
 
     # -- Scatter annotations -----------------------------------------------
 
