@@ -66,13 +66,20 @@ All UI state lives on a `ScSketch` instance:
 
 - Directional compute happens in `ScSketch._compute_directional_analysis(df, selections)`:
   - Uses `df[["x","y"]]` for geometry/projections.
+  - For brush selections, uses the stored brush centerline (`selection.path`) from stroke start to stroke end as the projection axis; otherwise falls back to the selected-cell endpoint order.
+  - The brush path is reconstructed from the stored brush outline by splitting the outline polygon into two halves, reversing the second half, and averaging the matched left/right boundary points into a centerline.
+    ```text
+    outline order:   A1 -> A2 -> A3 -> A4 -> B4 -> B3 -> B2 -> B1
+    pairing used:    (A1,B1), (A2,B2), (A3,B3), (A4,B4)
+    centerline pts:    *       *       *       *
+    ```
   - Pulls gene-expression from `adata.X` for the selected cells, so it can analyze all genes without preloading them into `self.df`.
   - Uses a sparse-aware correlation implementation (`_analysis.test_direction`) to avoid densifying `adata.X` when it is sparse.
   - Returns a list of per-selection result lists (one entry per selection).
 - Rendering happens in `_results.show_directional_results(...)`:
   - Stateless function — takes results + widget refs, builds the gene table, and wires gene-click handlers.
   - Gene click recolors the main embedding by full-dataset expression using a blue-to-green continuous gradient.
-  - The same gene click also renders a `GeneProjectionPlot` widget for the active selection; expression is loaded for the selected cells only.
+  - The same gene click also renders a `GeneProjectionPlot` widget for the active selection using the same path-based projection direction as the analysis; expression is loaded for the selected cells only.
 - Differential compute is owned by `DiffExprEngine` (`_diffexpr.py`):
   - Uses `adata.raw.X` if present, else `adata.X`.
   - Compares selected cells vs all non-selected cells using Welch t-test computed from summary stats.

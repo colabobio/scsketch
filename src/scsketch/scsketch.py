@@ -503,6 +503,7 @@ class ScSketch:
             pts_xy = df.iloc[idxs][["x", "y"]].values
             hull = ConvexHull(pts_xy)
             hull_pts = np.vstack((pts_xy[hull.vertices], pts_xy[hull.vertices[0]]))
+            spine = (part_one + sub_lassos_two[i]) / 2
 
             poly_list = polygon.astype(float).tolist()
             poly_list.append(poly_list[0])
@@ -514,6 +515,7 @@ class ScSketch:
                 color=color_map[i],
                 lasso=Line(poly_list),
                 hull=Line(hull_pts.astype(float).tolist(), line_color=color_map[i], line_width=2),
+                path=spine,
             )
             self.selections.selections.append(sel)
             self._add_selection_element(sel)
@@ -537,7 +539,9 @@ class ScSketch:
                 if lasso_polygon.shape[0] % 2 == 1:
                     lasso_polygon = lasso_polygon[:-1]
                 mid = lasso_polygon.shape[0] // 2
-                spine = (lasso_polygon[:mid, :] + lasso_polygon[mid:, :]) / 2
+                spine = (
+                    lasso_polygon[:mid, :] + lasso_polygon[mid:, :][::-1]
+                ) / 2
 
         name = ctrl.selection_name.value or f"Selection {len(self.selections.selections) + 1}"
 
@@ -663,12 +667,21 @@ class ScSketch:
                 results.append([])
                 continue
 
-            v = selected_embeddings[-1] - selected_embeddings[0]
-            v = v / np.linalg.norm(v)
-            start_point = selected_embeddings[0]
-            projections = np.array(
-                [np.dot(pt - start_point, v) for pt in selected_embeddings]
-            )
+            path = None if selection.path is None else np.asarray(selection.path, dtype=float)
+            if path is not None and path.shape[0] >= 2:
+                start_point = path[0]
+                end_point = path[-1]
+            else:
+                start_point = selected_embeddings[0]
+                end_point = selected_embeddings[-1]
+
+            v = end_point - start_point
+            nv = np.linalg.norm(v)
+            if nv <= 1e-15:
+                results.append([])
+                continue
+            v = v / nv
+            projections = np.dot(selected_embeddings - start_point, v)
 
             X_sel = self.adata.X[selected_indices, :]
             batch_result = test_direction(X_sel, projections)
