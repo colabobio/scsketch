@@ -6,9 +6,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-from jscatter import Line
 from matplotlib.path import Path
 from scipy.spatial import ConvexHull
+
+from jscatter import Line
+
 
 @dataclass
 class Selection:
@@ -23,6 +25,40 @@ class Selection:
     path: np.ndarray | None = None
     cached_results: list[dict[str, Any]] | None = None
     cached_diffexpr: list[dict[str, Any]] | None = None
+
+    def direction_guides(self) -> list[Line]:
+        if self.path is None:
+            return []
+
+        path = np.asarray(self.path, dtype=float)
+        if path.shape[0] < 2:
+            return []
+
+        guides = [
+            Line(path.tolist(), line_color=self.color, line_width=2),
+        ]
+
+        span = float(np.linalg.norm(path[-1] - path[0]))
+        arrow_size = max(span * 0.08, 1e-6)
+        arrowhead = _direction_arrowhead(path, arrow_size)
+        if arrowhead is not None:
+            left, right = arrowhead
+            end = path[-1]
+            guides.extend(
+                [
+                    Line(
+                        [left.tolist(), end.tolist()],
+                        line_color=self.color,
+                        line_width=2,
+                    ),
+                    Line(
+                        [right.tolist(), end.tolist()],
+                        line_color=self.color,
+                        line_width=2,
+                    ),
+                ]
+            )
+        return guides
 
 
 @dataclass
@@ -39,12 +75,42 @@ class Selections:
     def all_hulls(self) -> list[Line]:
         return [s.hull for s in self.selections]
 
+    def all_lassos(self) -> list[Line]:
+        return [s.lasso for s in self.selections]
+
+    def all_direction_guides(self) -> list[Line]:
+        return [
+            guide
+            for selection in self.selections
+            for guide in selection.direction_guides()
+        ]
+
 
 @dataclass
 class Lasso:
     """Class for keeping track of the lasso polygon."""
 
     polygon: Line | None = None
+
+
+def _direction_arrowhead(
+    path: np.ndarray, size: float
+) -> tuple[np.ndarray, np.ndarray] | None:
+    if path.shape[0] < 2:
+        return None
+
+    end = path[-1]
+    start = path[-2]
+    direction = end - start
+    norm = float(np.linalg.norm(direction))
+    if norm <= 1e-15:
+        return None
+
+    unit = direction / norm
+    normal = np.array([-unit[1], unit[0]])
+    back = end - unit * size
+    spread = size * 0.45
+    return back + normal * spread, back - normal * spread
 
 # Backward-compatible re-export — fetch_pathways now lives in _api
 from ._api import fetch_pathways  # noqa: F401
@@ -114,6 +180,6 @@ def create_selection(
         name=name,
         points=points_indices,
         color=color,
-        lasso=Line(lasso_polygon_list),
+        lasso=Line(lasso_polygon_list, line_color=color, line_width=2),
         hull=Line(hull_points, line_color=color, line_width=2),
     )

@@ -10,10 +10,11 @@ No business logic lives here — only widget instantiation and layout wiring.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional
 
 import ipywidgets as ipyw
+from IPython.display import HTML, display
 from ipywidgets import (
     Checkbox,
     Dropdown,
@@ -25,10 +26,9 @@ from ipywidgets import (
     Text,
     VBox,
 )
-from IPython.display import display, HTML
-from jscatter import Scatter
 from jscatter.widgets import Button
 
+from jscatter import Scatter
 
 # ── Progress spinner HTML (shared) ──────────────────────────────────────────
 
@@ -83,6 +83,7 @@ class UIControls:
 
     # ── Plot controls ────────────────────────────────────────────────────────
     color_by: Dropdown
+    gene_expression_caption: ipyw.HTML
 
     # ── Result display containers ────────────────────────────────────────────
     pathway_table_container: VBox
@@ -232,6 +233,10 @@ def build_controls(
         value=color_by_default,
         description="Color By:",
     )
+    gene_expression_caption = ipyw.HTML(
+        "",
+        layout=Layout(display="none", width="100%", min_width="0px"),
+    )
 
     # ── Result display containers ────────────────────────────────────────────
     pathway_table_container = VBox(
@@ -272,7 +277,7 @@ def build_controls(
 
     # ── Plot wrapper ─────────────────────────────────────────────────────────
     plot_wrapper = VBox(
-        [scatter.show(), color_by],
+        [scatter.show(), gene_expression_caption, color_by],
         layout=Layout(width="100%", min_width="0px"),
     )
 
@@ -355,6 +360,7 @@ def build_controls(
         diff_controls_box=diff_controls_box,
         compute_predicates_wrapper=compute_predicates_wrapper,
         color_by=color_by,
+        gene_expression_caption=gene_expression_caption,
         pathway_table_container=pathway_table_container,
         reactome_diagram_container=reactome_diagram_container,
         plot_wrapper=plot_wrapper,

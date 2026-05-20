@@ -5,24 +5,58 @@
   box-sizing: border-box;
 }
 
+.ct-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow: visible;
+}
+
 .correlation-table {
   width: 100%;
   border-collapse: collapse;
   margin-top: 10px;
   table-layout: fixed;
+  font-size: 12px;
 }
 .correlation-table th,
 .correlation-table td {
   border: 1px solid #ddd;
-  padding: 8px;
+  padding: 6px;
   text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.correlation-table .ct-col-gene {
+  width: 28%;
+}
+.correlation-table .ct-col-metric {
+  width: 19%;
+}
+.correlation-table .ct-col-pvalue {
+  width: 25%;
+}
+.correlation-table .ct-col-selection {
+  width: 28%;
+}
+.correlation-table td.ct-col-metric,
+.correlation-table td.ct-col-pvalue {
+  font-variant-numeric: tabular-nums;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.correlation-table td.ct-col-gene,
+.correlation-table td.ct-col-selection {
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
 .correlation-table th {
   background-color: #333;
   color: white;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 .correlation-table tr:hover {
   background-color: #eee;

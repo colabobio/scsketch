@@ -18,37 +18,40 @@ https://github.com/flekschas/jupyter-scatter/blob/main/notebooks/dimbridge.ipynb
 
 from __future__ import annotations
 
+from html import escape
+from pathlib import Path
+from typing import List, Optional
+
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-from pathlib import Path
-from typing import Optional, List
-
-import ipywidgets as ipyw
+from anndata import AnnData
 from ipywidgets import GridBox, Layout
-from jscatter import okabe_ito, Line
 from jscatter.widgets import Button
+from matplotlib import colormaps
 from matplotlib.colors import to_hex
 from scipy.spatial import ConvexHull
 
-from anndata import AnnData
+from jscatter import Line, okabe_ito
 
-from ._logging import LogLevel, configure_logging
-from ._scatter import ScScatter
+from ._analysis import lord_test, test_direction
 from ._data import build_embedding_df
 from ._diffexpr import DiffExprEngine
-from ._ui import UIControls, build_controls, set_analysis_progress, clear_analysis_progress
-from ._results import show_directional_results, show_diffexpr_results, clear_results
+from ._logging import LogLevel, configure_logging
+from ._results import clear_results, show_diffexpr_results, show_directional_results
+from ._scatter import ScScatter
+from ._ui import (
+    UIControls,
+    build_controls,
+    clear_analysis_progress,
+    set_analysis_progress,
+)
 from ._utils import (
     Lasso,
     Selection,
     Selections,
     points_in_polygon,
     split_line_equidistant,
-)
-from ._analysis import (
-    test_direction,
-    lord_test,
 )
 
 
@@ -236,14 +239,36 @@ class ScSketch:
         )
 
     def _gene_expression_color_map(self, steps: int = 256) -> list[str]:
-        """Return a dense blue-to-green gradient for expression coloring."""
+        """Return a perceptually uniform sequential map for expression coloring."""
         steps = max(2, int(steps))
-        blue = np.array([0.0, 0.0, 1.0])
-        green = np.array([0.0, 1.0, 0.0])
-        return [
-            to_hex(blue + (green - blue) * t)
-            for t in np.linspace(0.0, 1.0, steps)
-        ]
+        cmap = colormaps["viridis"]
+        return [to_hex(cmap(t)) for t in np.linspace(0.0, 1.0, steps)]
+
+    def _show_gene_expression_caption(self, gene: str):
+        """Show the gene-expression color caption beneath the scatterplot."""
+        colors = self._gene_expression_color_map(7)
+        denom = max(1, len(colors) - 1)
+        stops = ", ".join(
+            f"{color} {int(round(i * 100 / denom))}%"
+            for i, color in enumerate(colors)
+        )
+        safe_gene = escape(gene)
+        self._ctrl.gene_expression_caption.value = f"""
+<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+            margin:4px 0 2px 58px;font:12px sans-serif;color:#333;">
+  <span><b>{safe_gene}</b> expression</span>
+  <span>Low exp.</span>
+  <span style="display:inline-block;width:150px;height:18px;
+               border:1px solid #bbb;background:linear-gradient(to right,{stops});">
+  </span>
+  <span>Max exp.</span>
+</div>
+"""
+        self._ctrl.gene_expression_caption.layout.display = "block"
+
+    def _hide_gene_expression_caption(self):
+        self._ctrl.gene_expression_caption.layout.display = "none"
+        self._ctrl.gene_expression_caption.value = ""
 
     def _color_embedding_by_gene(self, gene: str):
         """Recolor the full embedding by expression of the selected gene."""
@@ -277,7 +302,23 @@ class ScSketch:
             norm=(vmin, vmax),
             labeling={"minValue": "Low", "maxValue": "High", "variable": gene},
         )
-        self._log(f"[color] recolored embedding for gene {gene!r} range=[{vmin:.4g}, {vmax:.4g}]")
+        self._show_gene_expression_caption(gene)
+        self._refresh_scatter_non_spatial_points()
+        self._log(
+            f"[color] recolored embedding for gene {gene!r} "
+            f"range=[{vmin:.4g}, {vmax:.4g}]"
+        )
+
+    def _refresh_scatter_non_spatial_points(self):
+        """Force jscatter to sync changed non-spatial encodings to the frontend."""
+        if self.scatter is None or self.scatter.widget is None:
+            return
+        try:
+            self.scatter.widget.prevent_filter_reset = True
+            self.scatter.widget.non_spatial_points_update = True
+            self.scatter.widget.points = self.scatter.get_point_list()
+        except Exception:
+            self.logger.exception("Failed to refresh scatter point encodings")
 
     # -- Scatter annotations -----------------------------------------------
 
@@ -287,7 +328,11 @@ class ScSketch:
             return
         try:
             lasso_polygon = [] if self.lasso.polygon is None else [self.lasso.polygon]
-            overlays = self.selections.all_hulls() + lasso_polygon
+            overlays = (
+                self.selections.all_lassos()
+                + self.selections.all_direction_guides()
+                + lasso_polygon
+            )
             scatter.annotations(overlays)
         except Exception:
             self.logger.exception("Failed to update annotations")
@@ -372,6 +417,8 @@ class ScSketch:
             self.scatter.color(by=new, map=self.categorical_color_maps[new])
         else:
             self.scatter.color(by=new, map="magma")
+        self._hide_gene_expression_caption()
+        self._refresh_scatter_non_spatial_points()
 
     # -- Selection management ----------------------------------------------
 
@@ -513,7 +560,7 @@ class ScSketch:
                 name=f"{base_name}.{i + 1}",
                 points=idxs,
                 color=color_map[i],
-                lasso=Line(poly_list),
+                lasso=Line(poly_list, line_color=color_map[i], line_width=2),
                 hull=Line(hull_pts.astype(float).tolist(), line_color=color_map[i], line_width=2),
                 path=spine,
             )
@@ -553,7 +600,7 @@ class ScSketch:
             name=name,
             points=idxs,
             color=color,
-            lasso=Line(lasso_polygon),
+            lasso=Line(lasso_polygon, line_color=color, line_width=2),
             hull=Line(hull_pts.astype(float).tolist(), line_color=color, line_width=2),
             path=spine,
         )

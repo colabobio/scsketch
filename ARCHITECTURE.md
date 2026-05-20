@@ -44,6 +44,10 @@ All UI state lives on a `ScSketch` instance:
   - Extracted from `ScSketch` so differential-expression computation has no widget dependencies.
 - `self.selections` (`Selections`)
   - The saved selections (each a `Selection` with `points`, `name`, `color`, etc.).
+  - `Selection.points` is the authoritative saved cell set, copied from `jscatter.selection()` when the user clicks save.
+  - Saved selection overlays render the original lasso/brush outline (`Selection.lasso`), not the convex hull of the selected points.
+  - Brush selections also render a simple direction guide from `Selection.path`: a spine plus small arrowhead pointing from the brush start toward the brush end.
+  - `Selection.hull` is still stored as derived geometry for compatibility, but it is not used to decide which cells belong to a selection.
 - `self.active_selection` (`Selection | None`)
   - The currently “active” selection.
   - Default behavior: when a new selection is saved, it becomes active (i.e., “latest selection” remains the default).

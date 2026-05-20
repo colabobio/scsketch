@@ -5,15 +5,36 @@ function render({ model, el }) {
   searchInput.placeholder = "Search genes...";
   searchInput.classList.add("ct-search-input");
 
+  const tableWrap = document.createElement("div");
+  tableWrap.classList.add("ct-table-wrap");
+
   const table = document.createElement("table");
   table.classList.add("correlation-table");
+  const thead = document.createElement("thead");
+  const tbody = document.createElement("tbody");
+  table.appendChild(thead);
+  table.appendChild(tbody);
 
   container.appendChild(searchInput);
-  container.appendChild(table);
+  tableWrap.appendChild(table);
+  container.appendChild(tableWrap);
   el.appendChild(container);
 
   let rowsCache = [];
   const MAX_ROWS = 200; // minimum visible rows at a time
+
+  const columnClass = (col) => {
+    if (col === "Gene") {
+      return "ct-col-gene";
+    }
+    if (col === "Selection") {
+      return "ct-col-selection";
+    }
+    if (col === "p") {
+      return "ct-col-pvalue";
+    }
+    return "ct-col-metric";
+  };
 
   const initializeTable = () => {
     const data = model.get("data") || [];
@@ -27,9 +48,11 @@ function render({ model, el }) {
     columns.forEach(col => {
       const th = document.createElement("th");
       th.textContent = col;
+      th.title = col;
+      th.classList.add(columnClass(col));
       headerRow.appendChild(th);
     });
-    table.appendChild(headerRow);
+    thead.appendChild(headerRow);
 
     rowsCache = data.map(row => {
       const tr = document.createElement("tr");
@@ -46,6 +69,7 @@ function render({ model, el }) {
       columns.forEach(col => {
         const td = document.createElement("td");
         const val = row[col];
+        td.classList.add(columnClass(col));
 
         if (col === "R" || col === "T" || col === "alpha_i") {
           // format to 4 decimal places if numeric
@@ -60,10 +84,11 @@ function render({ model, el }) {
           td.textContent = (val ?? "").toString();
         }
 
+        td.title = td.textContent;
         tr.appendChild(td);
       });
 
-      table.appendChild(tr);
+      tbody.appendChild(tr);
       return tr; // caching the row
     });
   };
