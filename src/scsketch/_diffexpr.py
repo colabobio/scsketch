@@ -200,7 +200,7 @@ class DiffExprEngine:
         Returns
         -------
         List of dicts with keys ``attribute``, ``interval``, ``quality``, ``direction``.
-        Sorted descending by ``|T|``, capped at 200 genes.
+        Sorted descending by ``|T|``.
         """
         self.ensure_global_stats()
         stats = self._global_stats
@@ -267,7 +267,7 @@ class DiffExprEngine:
         if idx.size == 0:
             return []
 
-        idx = idx[np.argsort(np.abs(t_stat[idx]))[::-1]][:200]
+        idx = idx[np.argsort(np.abs(t_stat[idx]))[::-1]]
 
         return [
             {

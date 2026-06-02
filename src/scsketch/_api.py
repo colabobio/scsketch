@@ -6,8 +6,9 @@ in tests and replaced independently of UI code.
 
 from __future__ import annotations
 
-import logging
 import base64
+import logging
+from functools import lru_cache
 from typing import Optional
 
 import requests
@@ -16,6 +17,68 @@ logger = logging.getLogger(__name__)
 
 # ── Reactome base URL ────────────────────────────────────────────────────────
 _REACTOME_BASE = "https://reactome.org/ContentService"
+_MYGENE_BASE = "https://mygene.info/v3"
+_GENE_DESCRIPTION_FIELDS = "symbol,name,summary,entrezgene,ensembl.gene,taxid"
+
+
+@lru_cache(maxsize=512)
+def fetch_gene_description(gene: str, species: str = "human") -> Optional[dict]:
+    """Fetch a short gene annotation from MyGene.info.
+
+    Parameters
+    ----------
+    gene:
+        Gene symbol or Ensembl gene ID (e.g. ``"TP53"`` or
+        ``"ENSG00000141510"``).
+    species:
+        Species filter passed to MyGene.info query lookups. Defaults to human to
+        match the existing Reactome integration.
+
+    Returns
+    -------
+    Dict with selected MyGene fields, or ``None`` on error / no match.
+    """
+    gene = (gene or "").strip()
+    if not gene:
+        return None
+
+    params = {"fields": _GENE_DESCRIPTION_FIELDS}
+    try:
+        if gene.upper().startswith("ENS"):
+            response = requests.get(
+                f"{_MYGENE_BASE}/gene/{gene}",
+                params=params,
+                timeout=15,
+            )
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            payload = response.json()
+        else:
+            response = requests.get(
+                f"{_MYGENE_BASE}/query",
+                params={
+                    "q": f"symbol:{gene}",
+                    "fields": _GENE_DESCRIPTION_FIELDS,
+                    "species": species,
+                    "size": 1,
+                },
+                timeout=15,
+            )
+            response.raise_for_status()
+            hits = response.json().get("hits", [])
+            if not hits:
+                return None
+            payload = hits[0]
+
+        if not isinstance(payload, dict):
+            return None
+        if not (payload.get("summary") or payload.get("name") or payload.get("symbol")):
+            return None
+        return payload
+    except requests.exceptions.RequestException as exc:
+        logger.warning("Error fetching MyGene description for %s: %s", gene, exc)
+        return None
 
 
 def fetch_pathways(gene: str) -> list[dict]:
@@ -35,7 +98,10 @@ def fetch_pathways(gene: str) -> list[dict]:
         response = requests.get(url, timeout=15)
         response.raise_for_status()
         pathways = response.json()
-        return [{"name": entry["displayName"], "stId": entry["stId"]} for entry in pathways]
+        return [
+            {"name": entry["displayName"], "stId": entry["stId"]}
+            for entry in pathways
+        ]
     except requests.exceptions.RequestException as exc:
         logger.warning("Error fetching Reactome pathways for %s: %s", gene, exc)
         return []
@@ -51,7 +117,8 @@ def fetch_pathway_svg(pathway_id: str) -> Optional[str]:
 
     Returns
     -------
-    Base64-encoded UTF-8 string of the SVG content, or ``None`` on error / empty response.
+    Base64-encoded UTF-8 string of the SVG content, or ``None`` on error /
+    empty response.
     """
     svg_url = f"{_REACTOME_BASE}/exporter/diagram/{pathway_id}.svg"
     try:
@@ -92,7 +159,11 @@ def fetch_pathway_participants(pathway_id: str) -> list[str]:
             if "identifier" in ref
         ]
     except requests.exceptions.RequestException as exc:
-        logger.warning("Error fetching participants for pathway %s: %s", pathway_id, exc)
+        logger.warning(
+            "Error fetching participants for pathway %s: %s",
+            pathway_id,
+            exc,
+        )
         return []
 
 
@@ -119,7 +190,9 @@ def gene_symbols_to_uniprot(gene_symbols: list[str]) -> list[str]:
                 if "uniprot" in hit and isinstance(hit["uniprot"], dict):
                     primary = hit["uniprot"].get("Swiss-Prot")
                     if primary is not None:
-                        mapping[gene] = primary[0] if isinstance(primary, list) else primary
+                        mapping[gene] = (
+                            primary[0] if isinstance(primary, list) else primary
+                        )
                         break
     except requests.exceptions.RequestException as exc:
         logger.warning("Error fetching UniProt IDs: %s", exc)

@@ -868,6 +868,46 @@ class ScSketch:
                 return pd.DataFrame(data).sort_values(by="correlation", ascending=False)
         return pd.DataFrame()
 
+    def get_diffexpr_genes(self, sel_name: str = "Selection 1") -> pd.DataFrame:
+        """Return differential-expression genes for the named selection.
+
+        Parameters
+        ----------
+        sel_name:
+            Name of the selection to retrieve differential-expression results from.
+
+        Returns
+        -------
+        DataFrame with columns ``gene``, ``t-statistic``, ``p-value``, and
+        ``selection``, sorted descending by absolute t-statistic. Empty
+        DataFrame if the selection is not found or has no cached DE results.
+        """
+        for sel in self.selections.selections:
+            if sel.name == sel_name and sel.cached_diffexpr is not None:
+                data = [
+                    {
+                        "gene": entry["attribute"],
+                        "t-statistic": entry["interval"][0],
+                        "p-value": entry["interval"][1],
+                        "selection": entry.get("direction", sel.name),
+                    }
+                    for entry in sel.cached_diffexpr
+                ]
+                df = pd.DataFrame(data)
+                if df.empty:
+                    return df
+                df["_abs_t"] = df["t-statistic"].abs()
+                return (
+                    df.sort_values(by="_abs_t", ascending=False)
+                    .drop(columns=["_abs_t"])
+                    .reset_index(drop=True)
+                )
+        return pd.DataFrame()
+
+    def get_de_genes(self, sel_name: str = "Selection 1") -> pd.DataFrame:
+        """Alias for :meth:`get_diffexpr_genes`."""
+        return self.get_diffexpr_genes(sel_name)
+
     def show(self):
         """Display the ScSketch widget."""
         return self._ctrl.ui

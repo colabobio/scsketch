@@ -8,25 +8,83 @@ stateful class logic — all state is passed in explicitly.
 from __future__ import annotations
 
 import logging
+from html import escape
 from typing import Callable, Optional
 
+import ipywidgets as ipyw
 import numpy as np
 import pandas as pd
-import ipywidgets as ipyw
-from ipywidgets import HTML as _HTML, Layout, VBox
-
 from anndata import AnnData
+from ipywidgets import HTML as _HTML
+from ipywidgets import Layout, VBox
 
-from ._api import fetch_pathways, fetch_pathway_svg
+from ._api import fetch_gene_description, fetch_pathway_svg, fetch_pathways
 from .widgets import (
     CorrelationTable,
-    PathwayTable,
-    InteractiveSVG,
     GeneProjectionPlot,
     GeneViolinPlot,
+    InteractiveSVG,
+    PathwayTable,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _format_gene_description(gene: str, description: Optional[dict]) -> str:
+    """Return compact HTML for a clicked gene's MyGene.info annotation."""
+    safe_gene = escape(gene)
+    base_style = (
+        "border:1px solid #ddd;border-radius:6px;padding:8px;margin-bottom:8px;"
+        "background:#fafafa;color:#222;font:12px sans-serif;line-height:1.35;"
+    )
+    summary_style = "margin-top:6px;max-height:180px;overflow-y:auto;padding-right:4px;"
+    if not description:
+        return (
+            f'<div style="{base_style}">'
+            f"<b>{safe_gene}</b><br>"
+            '<span style="color:#666;">No MyGene.info description found.</span>'
+            "</div>"
+        )
+
+    symbol = escape(str(description.get("symbol") or gene))
+    name = escape(str(description.get("name") or ""))
+    summary = str(description.get("summary") or "").strip()
+    safe_summary = escape(summary)
+
+    entrez = description.get("entrezgene")
+    ensembl = description.get("ensembl")
+    ensembl_gene = ""
+    if isinstance(ensembl, dict):
+        ensembl_gene = ensembl.get("gene") or ""
+    elif isinstance(ensembl, list) and ensembl and isinstance(ensembl[0], dict):
+        ensembl_gene = ensembl[0].get("gene") or ""
+
+    ids = []
+    if entrez:
+        ids.append(f"Entrez: {escape(str(entrez))}")
+    if ensembl_gene:
+        ids.append(f"Ensembl: {escape(str(ensembl_gene))}")
+    id_line = (
+        f'<div style="color:#666;margin-top:4px;">{" | ".join(ids)}</div>'
+        if ids else ""
+    )
+
+    source_id = escape(str(description.get("_id") or ""))
+    source_link = (
+        f'<a href="https://mygene.info/v3/gene/{source_id}" target="_blank" '
+        'style="color:#555;">MyGene.info</a>'
+        if source_id else "MyGene.info"
+    )
+    name_suffix = f" - {name}" if name else ""
+
+    return (
+        f'<div style="{base_style}">'
+        f"<div><b>{symbol}</b>{name_suffix}</div>"
+        f"{id_line}"
+        f'<div style="{summary_style}">{safe_summary or "No summary available."}</div>'
+        f'<div style="color:#666;margin-top:6px;">Source: {source_link}</div>'
+        "</div>"
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -96,6 +154,7 @@ def show_directional_results(
     reactome_diagram_container.layout.display = "none"
 
     gene_proj_plot = GeneProjectionPlot()
+    gene_description = _HTML("")
     pathway_msg = _HTML("")
 
     plot_box = VBox(
@@ -111,14 +170,17 @@ def show_directional_results(
             display="none",
         ),
     )
-    pathway_box = VBox([pathway_msg, pathway_table_widget], layout=Layout(flex="1 1 auto", overflow="auto"))
+    pathway_box = VBox(
+        [gene_description, pathway_msg, pathway_table_widget],
+        layout=Layout(flex="1 1 auto", overflow="auto"),
+    )
     pathway_table_container.children = [plot_box, pathway_box]
     pathway_table_container.layout = Layout(
         display="flex",
         flex_direction="column",
-        height="420px",
-        max_height="420px",
-        overflow="visible",
+        height="100%",
+        max_height="100%",
+        overflow="auto",
     )
 
     def on_gene_click(change):
@@ -128,9 +190,12 @@ def show_directional_results(
             if on_gene_selected is not None:
                 on_gene_selected(gene)
 
+            description = fetch_gene_description(gene)
+            gene_description.value = _format_gene_description(gene, description)
+
             pathways = fetch_pathways(gene)
             pathway_table_widget.data = pathways
-            pathway_table_container.layout.display = "block"
+            pathway_table_container.layout.display = "flex"
             pathway_msg.value = (
                 f"<em>No Reactome pathways found for <b>{gene}</b>.</em>"
                 if len(pathways) == 0
@@ -167,14 +232,20 @@ def show_directional_results(
             proj = (proj - proj.min()) / span
 
             if gene in df.columns:
-                expr = pd.to_numeric(df.iloc[selected_indices][gene], errors="coerce").to_numpy(dtype=float)
+                expr = pd.to_numeric(
+                    df.iloc[selected_indices][gene],
+                    errors="coerce",
+                ).to_numpy(dtype=float)
                 log(f"[plot] gene {gene!r} found in df columns (n={len(expr)})")
             else:
                 sub = adata[selected_indices, [gene]].X
                 if hasattr(sub, "toarray"):
                     sub = sub.toarray()
                 expr = np.asarray(sub).ravel().astype(float)
-                log(f"[plot] gene {gene!r} NOT in df; loaded from adata (n={len(expr)})")
+                log(
+                    f"[plot] gene {gene!r} NOT in df; "
+                    f"loaded from adata (n={len(expr)})"
+                )
 
             if not np.isfinite(expr).all():
                 finite = np.isfinite(expr)
@@ -186,14 +257,28 @@ def show_directional_results(
 
             dx = proj.max() - proj.min()
             dy = expr.max() - expr.min()
-            proj = np.linspace(0, 1, len(proj)) if dx <= 1e-12 else (proj - proj.min()) / (dx + 1e-12)
-            expr = np.zeros_like(expr) if dy <= 1e-12 else (expr - expr.min()) / (dy + 1e-12)
+            proj = (
+                np.linspace(0, 1, len(proj))
+                if dx <= 1e-12
+                else (proj - proj.min()) / (dx + 1e-12)
+            )
+            expr = (
+                np.zeros_like(expr)
+                if dy <= 1e-12
+                else (expr - expr.min()) / (dy + 1e-12)
+            )
 
-            plot_data = [{"projection": float(p), "expression": float(e)} for p, e in zip(proj, expr)]
+            plot_data = [
+                {"projection": float(p), "expression": float(e)}
+                for p, e in zip(proj, expr)
+            ]
             gene_proj_plot.data = plot_data
             plot_box.layout.display = "block"
             gene_proj_plot.gene = gene
-            log(f"[plot] {gene}: n={len(plot_data)} proj=[{proj.min():.3f},{proj.max():.3f}]")
+            log(
+                f"[plot] {gene}: n={len(plot_data)} "
+                f"proj=[{proj.min():.3f},{proj.max():.3f}]"
+            )
         except Exception:
             logger.exception("Error handling gene click")
 
@@ -268,7 +353,10 @@ def show_diffexpr_results(
             selections_predicates,
             pathway_table_container,
             reactome_diagram_container,
-            message=f"<em>No differential results passed thresholds for <b>{selection_label}</b>.</em>",
+            message=(
+                "<em>No differential results passed thresholds for "
+                f"<b>{selection_label}</b>.</em>"
+            ),
         )
         return
 
@@ -283,7 +371,11 @@ def show_diffexpr_results(
     ]
     results_df = pd.DataFrame(rows).dropna(subset=["T", "p"])
     results_df["_absT"] = results_df["T"].abs()
-    results_df = results_df.sort_values(by="_absT", ascending=False).drop(columns=["_absT"]).reset_index(drop=True)
+    results_df = (
+        results_df.sort_values(by="_absT", ascending=False)
+        .drop(columns=["_absT"])
+        .reset_index(drop=True)
+    )
 
     gene_table_widget = CorrelationTable(
         data=results_df.to_dict(orient="records"),
@@ -291,6 +383,7 @@ def show_diffexpr_results(
     )
 
     violin = GeneViolinPlot()
+    gene_description = _HTML("")
     title = _HTML("")
     plot_box = VBox(
         [title, violin],
@@ -305,7 +398,7 @@ def show_diffexpr_results(
             display="none",
         ),
     )
-    pathway_table_container.children = [plot_box]
+    pathway_table_container.children = [gene_description, plot_box]
     pathway_table_container.layout.display = "block"
     reactome_diagram_container.layout.display = "none"
 
@@ -316,6 +409,9 @@ def show_diffexpr_results(
         try:
             if on_gene_selected is not None:
                 on_gene_selected(gene)
+
+            description = fetch_gene_description(gene)
+            gene_description.value = _format_gene_description(gene, description)
 
             X, var_names, _ = de_source_fn()
             if gene not in var_names:
@@ -345,13 +441,18 @@ def show_diffexpr_results(
 
             def _extract(rows):
                 col = X[rows, gene_idx]
-                return np.asarray(col.toarray() if hasattr(col, "toarray") else col).ravel().astype(float)
+                values = col.toarray() if hasattr(col, "toarray") else col
+                return np.asarray(values).ravel().astype(float)
 
             sel_vals = _extract(sel_samp)
             bg_vals = _extract(bg_samp)
 
-            vmin = float(min(sel_vals.min() if sel_vals.size else 0.0, bg_vals.min() if bg_vals.size else 0.0))
-            vmax = float(max(sel_vals.max() if sel_vals.size else 0.0, bg_vals.max() if bg_vals.size else 0.0))
+            sel_min = sel_vals.min() if sel_vals.size else 0.0
+            bg_min = bg_vals.min() if bg_vals.size else 0.0
+            sel_max = sel_vals.max() if sel_vals.size else 0.0
+            bg_max = bg_vals.max() if bg_vals.size else 0.0
+            vmin = float(min(sel_min, bg_min))
+            vmax = float(max(sel_max, bg_max))
             if not (np.isfinite(vmin) and np.isfinite(vmax)):
                 return
             if vmax <= vmin:
@@ -390,7 +491,12 @@ def clear_results(
     message: Optional[str] = None,
 ) -> None:
     """Clear all result panels, optionally showing a status ``message``."""
-    _clear_results(selections_predicates, pathway_table_container, reactome_diagram_container, message)
+    _clear_results(
+        selections_predicates,
+        pathway_table_container,
+        reactome_diagram_container,
+        message,
+    )
 
 
 def _clear_results(

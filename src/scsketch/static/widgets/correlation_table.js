@@ -21,7 +21,6 @@ function render({ model, el }) {
   el.appendChild(container);
 
   let rowsCache = [];
-  const MAX_ROWS = 200; // minimum visible rows at a time
 
   const columnClass = (col) => {
     if (col === "Gene") {
@@ -99,13 +98,11 @@ function render({ model, el }) {
 
   const updateTable = () => {
     const filterText = searchInput.value.toLowerCase();
-    let visibleCount = 0;
 
     requestAnimationFrame(() => {
       rowsCache.forEach(row => {
-        if (visibleCount < MAX_ROWS && row.dataset.gene.includes(filterText)) {
+        if (row.dataset.gene.includes(filterText)) {
           row.style.display = "table-row";
-          visibleCount++;
         } else {
           row.style.display = "none";
         }

@@ -30,6 +30,14 @@ uvx scsketch demo
 
 This single command will automatically install scSketch and all dependencies in an ephemeral environment, then launch the demo notebook. It requires [uv](https://docs.astral.sh/uv/), which is a fast Python package manager.
 
+If the demo fails with `ModuleNotFoundError: No module named 'jscatter.widgets'`,
+your environment resolved `jupyter-scatter` 1.x, which removed the helper module
+used by this scSketch release. Run the demo with the compatible 0.x line:
+
+```bash
+uvx --isolated --with "jupyter-scatter<1" scsketch demo
+```
+
 Alternatively, if you've cloned the repository, you can run the demo notebook directly with [juv](https://github.com/manzt/juv):
 
 ```bash
@@ -69,6 +77,13 @@ Then install scSketch into the environment backing your Jupyter kernel:
 
 ```bash
 pip install scsketch
+```
+
+If importing scSketch fails with `ModuleNotFoundError: No module named 'jscatter.widgets'`,
+install a compatible `jupyter-scatter` release in the same environment:
+
+```bash
+pip install "jupyter-scatter>=0.21,<1"
 ```
 
 **Optional: Numba-accelerated kernels (`[fast]` extra)**
