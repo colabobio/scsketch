@@ -40,6 +40,21 @@ from ._diffexpr import DiffExprEngine
 from ._logging import LogLevel, configure_logging
 from ._results import clear_results, show_diffexpr_results, show_directional_results
 from ._scatter import ScScatter
+from ._session import (
+    build_session_player as _build_session_player,
+)
+from ._session import (
+    export_session as _export_session,
+)
+from ._session import (
+    load_session as _load_session,
+)
+from ._session import (
+    read_session as _read_session,
+)
+from ._session import (
+    write_session as _write_session,
+)
 from ._ui import (
     UIControls,
     build_controls,
@@ -907,6 +922,43 @@ class ScSketch:
     def get_de_genes(self, sel_name: str = "Selection 1") -> pd.DataFrame:
         """Alias for :meth:`get_diffexpr_genes`."""
         return self.get_diffexpr_genes(sel_name)
+
+    def export_session(self, path: str | Path | None = None) -> dict:
+        """Export selections, analysis parameters, and cached results.
+
+        If ``path`` is provided, the session document is also written as JSON.
+        """
+        if path is None:
+            return _export_session(self)
+        return _write_session(self, path)
+
+    def load_session(self, session: str | Path | dict) -> list[str]:
+        """Load a session document or JSON file into this ScSketch instance.
+
+        Returns
+        -------
+        list[str]
+            Non-fatal compatibility warnings, such as dataset fingerprint
+            mismatches.
+        """
+        document = (
+            _read_session(session) if isinstance(session, (str, Path)) else session
+        )
+        return _load_session(self, document)
+
+    def show_session_player(self, session: str | Path | dict | None = None):
+        """Return a playback UI for a saved session.
+
+        If ``session`` is omitted, playback is built from the current sketch
+        state. Otherwise, pass a session document or path to a session JSON file.
+        """
+        if session is None:
+            document = _export_session(self)
+        else:
+            document = (
+                _read_session(session) if isinstance(session, (str, Path)) else session
+            )
+        return _build_session_player(self, document)
 
     def show(self):
         """Display the ScSketch widget."""

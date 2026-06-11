@@ -22,6 +22,7 @@ event handlers, but delegates all other responsibilities to single-purpose modul
 | `_results.py` | `show_directional_results()`, `show_diffexpr_results()` — result panel wiring |
 | `_analysis.py` | Pure statistics: `test_direction`, `lord_test`, numba-accelerated DE kernels |
 | `_utils.py` | `Selection`, `Selections`, `Lasso`, geometry helpers, `create_selection` |
+| `_session.py` | Versioned session-log export/import, dataset fingerprints, selection rehydration |
 | `_logging.py` | `configure_logging()` — module-scoped logger, `LogLevel` type alias |
 | `_cli.py` | `scsketch demo` CLI entry point (downloads + launches demo notebook via `uv`) |
 | `widgets/` | Eight AnyWidget components (tables, plots, SVG viewer, labels) |
@@ -156,6 +157,29 @@ This means JS and CSS can be edited live during development (with `ANYWIDGET_HMR
 - `ScSketch.get_genes(selection_name)` exports cached directional results from `Selection.cached_results` with `gene`, `correlation`, and `p-value` columns.
 - `ScSketch.get_diffexpr_genes(selection_name)` exports cached differential-expression results from `Selection.cached_diffexpr` with `gene`, `t-statistic`, `p-value`, and `selection` columns.
 - `ScSketch.get_de_genes(selection_name)` is a short alias for `get_diffexpr_genes(...)`.
+
+## Session logs
+
+- `ScSketch.export_session()` returns a JSON-serializable session document.
+- `ScSketch.export_session(path)` writes that document to disk.
+- `ScSketch.load_session(session_or_path)` loads a session document or JSON file and returns non-fatal compatibility warnings.
+- `ScSketch.show_session_player(session_or_path)` returns a small ipywidgets playback panel for stepping through a saved session.
+- Session logs are versioned with `schema_version == "1.0"` and are owned by `_session.py`.
+- A session log stores:
+  - Dataset fingerprints: `n_obs`, `n_vars`, `obs_names_hash`, `var_names_hash`, and an `X_umap` coordinate hash when present.
+  - Initial ScSketch config: metadata columns, default color, height, background, `max_genes`, and directional `fdr_alpha`.
+  - UI analysis state: active selection, analysis mode, and DE thresholds when widgets are available.
+  - Saved selections: name, index, color, selected cell indices, selected `obs_names`, lasso polygon, hull, path, and cached directional/DE results.
+  - Playback steps synthesized from saved selections and cached result availability.
+- On load, cell identity is restored by `obs_names` first and falls back to saved integer indices when names are unavailable.
+- Loading a session replaces the current saved selections, restores selection overlays, restores active selection, and re-renders cached results when a full widget instance is available.
+- Playback is intentionally conservative:
+  - `restore_selection` steps restore selections up to the named selection and make that selection active.
+  - `show_directional_results` steps restore the relevant selection and show its cached directional results.
+  - `show_diffexpr_results` steps restore the relevant selection and show its cached DE results.
+  - If an older session log has no explicit `steps` field, `_session.py` synthesizes the same step sequence from saved selections.
+- Compatibility warnings are informational. They do not block load, because a user may intentionally replay a session against a reordered or closely related AnnData object.
+- Live event recording is intentionally out of scope for the first playback implementation. Playback currently operates on saved selections and cached results from the session log.
 
 ## Layout notes
 
