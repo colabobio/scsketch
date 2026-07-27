@@ -14,6 +14,11 @@ import numpy as np
 
 from jscatter import Line
 
+from ._action_log import (
+    action_log_from_steps,
+    apply_action_log_entry,
+    normalize_action_log,
+)
 from ._utils import Selection, Selections
 
 SESSION_SCHEMA_VERSION = "1.0"
@@ -40,7 +45,12 @@ def export_session(sketch) -> dict[str, Any]:
             _serialize_selection(selection, adata)
             for selection in sketch.selections.selections
         ],
+        "selection_archive": [
+            _serialize_selection(selection, adata)
+            for selection in _archived_selections(sketch)
+        ],
         "steps": _steps_for_selections(sketch.selections.selections),
+        "action_log": normalize_action_log(getattr(sketch, "action_log", [])),
     }
 
 
@@ -68,6 +78,10 @@ def load_session(sketch, session: dict[str, Any]) -> list[str]:
         selections.append(_deserialize_selection(raw, sketch.adata))
 
     sketch.selections = Selections(selections=selections)
+    sketch._selection_archive = {
+        selection.name: selection
+        for selection in _deserialize_selection_archive(session, sketch.adata)
+    }
     active_name = session.get("state", {}).get("active_selection")
     sketch.active_selection = _find_selection(selections, active_name)
     if sketch.active_selection is None and selections:
@@ -76,6 +90,9 @@ def load_session(sketch, session: dict[str, Any]) -> list[str]:
     state = session.get("state", {})
     if "analysis_mode" in state:
         sketch.analysis_mode = state["analysis_mode"]
+    sketch.action_log = normalize_action_log(
+        session.get("action_log") or action_log_from_steps(session.get("steps") or [])
+    )
     _restore_widget_state(sketch, state)
 
     _refresh_loaded_session_ui(sketch)
@@ -84,6 +101,10 @@ def load_session(sketch, session: dict[str, Any]) -> list[str]:
 
 def build_playback_steps(session: dict[str, Any]) -> list[dict[str, Any]]:
     """Return ordered playback steps for a session document."""
+    action_log = normalize_action_log(session.get("action_log") or [])
+    if action_log:
+        return action_log
+
     steps = session.get("steps") or []
     if steps:
         return list(steps)
@@ -105,6 +126,21 @@ def apply_playback_step(
         raise IndexError("Playback step index is out of range.")
 
     step = steps[step_index]
+    if _is_action_log_step(step):
+        selections = _selections_through_action(
+            session,
+            sketch.adata,
+            step_index,
+            step,
+        )
+        sketch.selections = Selections(
+            selections=selections
+        )
+        _restore_widget_state(sketch, session.get("state", {}))
+        message = apply_action_log_entry(sketch, step)
+        _refresh_selection_sidebar(sketch)
+        return {**step, "_status": message}
+
     selections = _selections_through_step(session, sketch.adata, step)
     sketch.selections = Selections(selections=selections)
     sketch.active_selection = _find_selection(selections, step.get("selection"))
@@ -151,7 +187,10 @@ def build_session_player(sketch, session: dict[str, Any]) -> ipyw.VBox:
             f"<b>Step {index + 1} of {len(steps)}</b>: "
             f"{_escape_html(step.get('label') or step.get('type') or '')}"
         )
-        status.value = _step_status(step)
+        if step.get("_status"):
+            status.value = f"<em>{_escape_html(step['_status'])}</em>"
+        else:
+            status.value = _step_status(step)
         prev_button.disabled = index == 0
         next_button.disabled = index == len(steps) - 1
 
@@ -371,6 +410,45 @@ def _selections_through_step(
     return selections
 
 
+def _selections_through_action(
+    session: dict[str, Any],
+    adata,
+    step_index: int,
+    step: dict[str, Any],
+) -> list[Selection]:
+    action_log = normalize_action_log(session.get("action_log") or [])
+    saved_names = []
+    removed_names = set()
+    for entry in action_log[: step_index + 1]:
+        entry_type = entry.get("type")
+        selection = entry.get("selection")
+        if entry_type == "save_selection" and selection:
+            removed_names.discard(selection)
+            saved_names.append(selection)
+        elif entry_type == "remove_selection" and selection:
+            removed_names.add(selection)
+
+    if step.get("selection") and step["selection"] not in saved_names:
+        saved_names.append(step["selection"])
+
+    names = [name for name in saved_names if name not in removed_names]
+    raw_selections = session.get("selection_archive") or session.get("selections", [])
+    raw_by_name = {
+        raw.get("name"): raw
+        for raw in raw_selections
+        if raw.get("name") is not None
+    }
+    return [
+        _deserialize_selection(raw_by_name[name], adata)
+        for name in names
+        if name in raw_by_name
+    ]
+
+
+def _is_action_log_step(step: dict[str, Any]) -> bool:
+    return "payload" in step or "timestamp" in step
+
+
 def _show_playback_step(sketch, step: dict[str, Any]) -> None:
     active = getattr(sketch, "active_selection", None)
     if active is None or getattr(sketch, "_ctrl", None) is None:
@@ -473,7 +551,7 @@ def _restore_widget_state(sketch, state: dict[str, Any]) -> None:
         ctrl.diff_controls_box.layout.display = "none"
 
 
-def _refresh_loaded_session_ui(sketch) -> None:
+def _refresh_selection_sidebar(sketch) -> None:
     ctrl = getattr(sketch, "_ctrl", None)
     if ctrl is None:
         return
@@ -498,6 +576,14 @@ def _refresh_loaded_session_ui(sketch) -> None:
 
     if hasattr(sketch, "_update_annotations"):
         sketch._update_annotations()
+
+
+def _refresh_loaded_session_ui(sketch) -> None:
+    ctrl = getattr(sketch, "_ctrl", None)
+    if ctrl is None:
+        return
+
+    _refresh_selection_sidebar(sketch)
 
     active = getattr(sketch, "active_selection", None)
     if active is None:
@@ -524,3 +610,26 @@ def _refresh_loaded_session_ui(sketch) -> None:
         sketch._clear_results_display(
             f"<em>No cached results for <b>{active.name}</b> yet.</em>"
         )
+
+
+def _archived_selections(sketch) -> list[Selection]:
+    selections: list[Selection] = []
+    seen = set()
+    archive = getattr(sketch, "_selection_archive", {}) or {}
+    for selection in archive.values():
+        if selection is not None and selection.name not in seen:
+            selections.append(selection)
+            seen.add(selection.name)
+    for selection in getattr(sketch.selections, "selections", []):
+        if selection.name not in seen:
+            selections.append(selection)
+            seen.add(selection.name)
+    return selections
+
+
+def _deserialize_selection_archive(
+    session: dict[str, Any],
+    adata,
+) -> list[Selection]:
+    raw_selections = session.get("selection_archive") or session.get("selections", [])
+    return [_deserialize_selection(raw, adata) for raw in raw_selections]

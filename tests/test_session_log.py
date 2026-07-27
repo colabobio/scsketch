@@ -4,6 +4,7 @@ import numpy as np
 from anndata import AnnData
 
 from jscatter import Line
+from scsketch._action_log import apply_action_log_entry
 from scsketch._session import apply_playback_step, build_playback_steps
 from scsketch._utils import Selection, Selections
 from scsketch.scsketch import ScSketch
@@ -33,6 +34,10 @@ def _sketch(adata):
     sketch.fdr_alpha = 0.05
     sketch.analysis_mode = "directional"
     sketch.active_selection = None
+    sketch.action_log = []
+    sketch._action_log_paused = False
+    sketch._selection_archive = {}
+    sketch.scatter = None
     sketch._ctrl = None
     sketch.selections = Selections(
         selections=[
@@ -57,6 +62,9 @@ def _sketch(adata):
         ]
     )
     sketch.active_selection = sketch.selections.selections[0]
+    sketch._selection_archive = {
+        selection.name: selection for selection in sketch.selections.selections
+    }
     return sketch
 
 
@@ -93,6 +101,7 @@ def test_export_session_includes_replayable_selection_state():
     assert session["state"]["active_selection"] == "Selection 1"
 
     selection = session["selections"][0]
+    assert session["selection_archive"][0]["name"] == "Selection 1"
     assert selection["name"] == "Selection 1"
     assert selection["points_indices"] == [0, 2]
     assert selection["points_obs_names"] == ["cell_a", "cell_c"]
@@ -151,6 +160,109 @@ def test_session_can_round_trip_through_json_file(tmp_path):
     assert target.selections.selections[0].points.tolist() == [0, 2]
 
 
+def test_recorded_action_log_is_exported_and_loaded():
+    source = _sketch(_adata())
+    source._record_action(
+        "save_selection",
+        "Saved selection Selection 1",
+        selection="Selection 1",
+        payload={"n_cells": 2},
+    )
+    session = source.export_session()
+    target = _sketch(_adata())
+    target.action_log = []
+
+    target.load_session(session)
+
+    assert session["action_log"][0]["type"] == "save_selection"
+    assert session["action_log"][0]["selection"] == "Selection 1"
+    assert target.action_log[0]["payload"] == {"n_cells": 2}
+
+
+def test_action_log_row_can_restore_selection_state():
+    sketch = _sketch(_adata())
+    entry = sketch._record_action(
+        "compute_directional",
+        "Computed directional results for Selection 1",
+        selection="Selection 1",
+    )
+    sketch.active_selection = None
+
+    message = apply_action_log_entry(sketch, entry)
+
+    assert message == "Restored selection Selection 1."
+    assert sketch.active_selection.name == "Selection 1"
+
+
+def test_select_gene_action_replays_gene_result_details():
+    sketch = _sketch(_adata())
+    calls = []
+    sketch._ctrl = SimpleNamespace(
+        directional_controls_box=SimpleNamespace(layout=SimpleNamespace(display="")),
+        diff_controls_box=SimpleNamespace(layout=SimpleNamespace(display="")),
+    )
+    def show_directional_results(results, *, initial_gene=None):
+        calls.append(("directional", results, initial_gene))
+
+    sketch._show_directional_results = show_directional_results
+    sketch._color_embedding_by_gene = lambda gene: calls.append(("gene", gene))
+    entry = sketch._record_action(
+        "select_gene",
+        "Selected gene GeneA",
+        selection="Selection 1",
+        payload={"gene": "GeneA"},
+    )
+
+    message = apply_action_log_entry(sketch, entry)
+
+    assert message == "Restored selection Selection 1 and gene GeneA."
+    assert calls == [("directional", [sketch.active_selection.cached_results], "GeneA")]
+
+
+def test_show_action_log_returns_widget():
+    sketch = _sketch(_adata())
+    sketch._record_action("save_selection", "Saved selection Selection 1")
+
+    table = sketch.show_action_log()
+
+    assert table.__class__.__name__ == "VBox"
+
+
+def test_show_action_log_click_reconstructs_deleted_selection_timeline():
+    sketch = _sketch(_adata())
+    _add_de_selection(sketch)
+    for selection in sketch.selections.selections:
+        sketch._archive_selection(selection)
+    sketch._record_action(
+        "save_selection",
+        "Saved selection Selection 1",
+        selection="Selection 1",
+    )
+    sketch._record_action(
+        "save_selection",
+        "Saved selection Selection 2",
+        selection="Selection 2",
+    )
+    removed = sketch.selections.selections.pop()
+    sketch._archive_selection(removed)
+    sketch._record_action(
+        "remove_selection",
+        "Removed selection Selection 2",
+        selection="Selection 2",
+    )
+
+    table = sketch.show_action_log()
+    rows_box = table.children[1]
+    save_selection_2_row = rows_box.children[2]
+    save_selection_2_button = save_selection_2_row.children[2]
+    save_selection_2_button.click()
+
+    assert [selection.name for selection in sketch.selections.selections] == [
+        "Selection 1",
+        "Selection 2",
+    ]
+
+
 def test_build_playback_steps_synthesizes_legacy_session_steps():
     sketch = _sketch(_adata())
     _add_de_selection(sketch)
@@ -165,6 +277,39 @@ def test_build_playback_steps_synthesizes_legacy_session_steps():
         "restore_selection",
         "show_diffexpr_results",
     ]
+
+
+def test_build_playback_steps_prefers_action_log_when_present():
+    sketch = _sketch(_adata())
+    sketch._record_action(
+        "save_selection",
+        "Saved selection Selection 1",
+        selection="Selection 1",
+    )
+    session = sketch.export_session()
+
+    steps = build_playback_steps(session)
+
+    assert [step["type"] for step in steps] == ["save_selection"]
+
+
+def test_apply_playback_step_can_apply_action_log_entry():
+    sketch = _sketch(_adata())
+    sketch._record_action(
+        "save_selection",
+        "Saved selection Selection 1",
+        selection="Selection 1",
+    )
+    session = sketch.export_session()
+    target = _sketch(_adata())
+    target.selections = SimpleNamespace(selections=[])
+    target.active_selection = None
+
+    step = apply_playback_step(target, session, 0)
+
+    assert step["type"] == "save_selection"
+    assert target.active_selection.name == "Selection 1"
+    assert target.selections.selections[0].name == "Selection 1"
 
 
 def test_apply_playback_step_restores_state_through_step():
@@ -184,6 +329,51 @@ def test_apply_playback_step_restores_state_through_step():
         "Selection 1",
         "Selection 2",
     ]
+
+
+def test_apply_playback_step_can_rewind_before_removed_selection():
+    sketch = _sketch(_adata())
+    _add_de_selection(sketch)
+    for selection in sketch.selections.selections:
+        sketch._archive_selection(selection)
+    sketch._record_action(
+        "save_selection",
+        "Saved selection Selection 1",
+        selection="Selection 1",
+    )
+    sketch._record_action(
+        "save_selection",
+        "Saved selection Selection 2",
+        selection="Selection 2",
+    )
+    removed = sketch.selections.selections.pop()
+    sketch._archive_selection(removed)
+    sketch._record_action(
+        "remove_selection",
+        "Removed selection Selection 2",
+        selection="Selection 2",
+    )
+    session = sketch.export_session()
+    target = _sketch(_adata())
+    target.selections = SimpleNamespace(selections=[])
+    target.active_selection = None
+
+    step_before_delete = apply_playback_step(target, session, 1)
+    assert step_before_delete["type"] == "save_selection"
+    assert [selection.name for selection in target.selections.selections] == [
+        "Selection 1",
+        "Selection 2",
+    ]
+
+    delete_step = apply_playback_step(target, session, 2)
+    assert delete_step["type"] == "remove_selection"
+    assert [selection.name for selection in target.selections.selections] == [
+        "Selection 1",
+    ]
+    assert {raw["name"] for raw in session["selection_archive"]} == {
+        "Selection 1",
+        "Selection 2",
+    }
 
 
 def test_show_session_player_returns_widget_and_applies_first_step():

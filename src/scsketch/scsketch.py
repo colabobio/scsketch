@@ -34,12 +34,17 @@ from scipy.spatial import ConvexHull
 
 from jscatter import Line, okabe_ito
 
+from ._action_log import append_action as _append_action
+from ._action_log import build_action_log_table as _build_action_log_table
 from ._analysis import lord_test, test_direction
 from ._data import build_embedding_df
 from ._diffexpr import DiffExprEngine
 from ._logging import LogLevel, configure_logging
 from ._results import clear_results, show_diffexpr_results, show_directional_results
 from ._scatter import ScScatter
+from ._session import (
+    apply_playback_step as _apply_playback_step,
+)
 from ._session import (
     build_session_player as _build_session_player,
 )
@@ -136,6 +141,9 @@ class ScSketch:
         self.selections = Selections()
         self.active_selection: Selection | None = None
         self.analysis_mode: str = "directional"  # "directional" | "differential"
+        self.action_log: list[dict] = []
+        self._action_log_paused = False
+        self._selection_archive: dict[str, Selection] = {}
 
         # -- LORD++ online state --------------------------------------------
         self.batch_results = None
@@ -199,6 +207,33 @@ class ScSketch:
     def _log(self, *args):
         self.logger.debug(" ".join(str(a) for a in args))
 
+    def _record_action(
+        self,
+        action_type: str,
+        label: str,
+        *,
+        selection: str | None = None,
+        payload: dict | None = None,
+    ) -> dict | None:
+        """Append a user-facing audit event unless logging is paused."""
+        if getattr(self, "_action_log_paused", False):
+            return None
+        if not hasattr(self, "action_log"):
+            self.action_log = []
+        return _append_action(
+            self.action_log,
+            action_type,
+            label,
+            selection=selection,
+            analysis_mode=self.analysis_mode,
+            payload=payload,
+        )
+
+    def _archive_selection(self, selection: Selection | None) -> None:
+        """Keep a snapshot reference for playback of selections later removed."""
+        if selection is not None:
+            self._selection_archive[selection.name] = selection
+
     # -- Progress helpers --------------------------------------------------
 
     def _set_progress(self, mode: str, step: int, total: int, message: str):
@@ -209,7 +244,7 @@ class ScSketch:
 
     # -- Results display ---------------------------------------------------
 
-    def _show_directional_results(self, directional_results):
+    def _show_directional_results(self, directional_results, *, initial_gene=None):
         ctrl = self._ctrl
         ctrl.compute_predicates.style = ""
         ctrl.compute_predicates.description = "Clear Results"
@@ -223,12 +258,21 @@ class ScSketch:
             df=self.df,
             adata=self.adata,
             active_selection=self.active_selection,
-            on_gene_selected=self._color_embedding_by_gene,
+            on_gene_selected=self._handle_gene_selected,
             on_results_cleared=self._clear_predicates,
             log=self._log,
+            on_pathway_selected=self._handle_pathway_selected,
+            initial_gene=initial_gene,
         )
 
-    def _show_diffexpr_results(self, diff_results, selection_label, *, selected_indices=None):
+    def _show_diffexpr_results(
+        self,
+        diff_results,
+        selection_label,
+        *,
+        selected_indices=None,
+        initial_gene=None,
+    ):
         ctrl = self._ctrl
         show_diffexpr_results(
             diff_results,
@@ -240,8 +284,9 @@ class ScSketch:
             de_source_fn=self._de_engine.de_source,
             active_selection=self.active_selection,
             scatter=self.scatter,
-            on_gene_selected=self._color_embedding_by_gene,
+            on_gene_selected=self._handle_gene_selected,
             log=self._log,
+            initial_gene=initial_gene,
         )
 
     def _clear_results_display(self, message: str | None = None):
@@ -324,6 +369,27 @@ class ScSketch:
             f"range=[{vmin:.4g}, {vmax:.4g}]"
         )
 
+    def _handle_gene_selected(self, gene: str):
+        """Record and handle a result-table gene click."""
+        selection = None if self.active_selection is None else self.active_selection.name
+        self._record_action(
+            "select_gene",
+            f"Selected gene {gene}",
+            selection=selection,
+            payload={"gene": gene},
+        )
+        self._color_embedding_by_gene(gene)
+
+    def _handle_pathway_selected(self, pathway_id: str):
+        """Record a Reactome pathway click."""
+        selection = None if self.active_selection is None else self.active_selection.name
+        self._record_action(
+            "select_pathway",
+            f"Selected pathway {pathway_id}",
+            selection=selection,
+            payload={"pathway_id": pathway_id},
+        )
+
     def _refresh_scatter_non_spatial_points(self):
         """Force jscatter to sync changed non-spatial encodings to the frontend."""
         if self.scatter is None or self.scatter.widget is None:
@@ -363,12 +429,23 @@ class ScSketch:
         )
         scatter.widget.observe(self._selection_handler, names=["selection"])
         scatter.widget.observe(self._lasso_type_change_handler, names=["lasso_type"])
+        if hasattr(scatter.widget, "lasso_brush_size"):
+            scatter.widget.observe(
+                self._lasso_brush_size_change_handler,
+                names=["lasso_brush_size"],
+            )
 
         ctrl = self._ctrl
         ctrl.selection_add.on_click(self._selection_add_handler)
         ctrl.compute_predicates.on_click(self._compute_predicates_handler)
         ctrl.compute_diffexpr.on_click(self._compute_diffexpr_handler)
         ctrl.color_by.observe(self._color_by_change_handler, names=["value"])
+        ctrl.compute_predicates_between_selections.observe(
+            self._compare_between_change_handler,
+            names=["value"],
+        )
+        ctrl.diff_t_threshold.observe(self._diff_threshold_change_handler, names=["value"])
+        ctrl.diff_p_threshold.observe(self._diff_threshold_change_handler, names=["value"])
 
     def _lasso_selection_polygon_change_handler(self, change):
         scatter = self.scatter
@@ -425,6 +502,35 @@ class ScSketch:
             ctrl.compute_predicates.on_click(self._compute_predicates_handler)
             self._clear_results_display(None)
         self._update_annotations()
+        self._record_action(
+            "change_lasso_type",
+            f"Changed lasso type to {change['new']}",
+            payload={"lasso_type": change["new"]},
+        )
+
+    def _lasso_brush_size_change_handler(self, change):
+        self._record_action(
+            "change_brush_size",
+            f"Changed brush size to {change['new']}",
+            payload={"brush_size": change["new"]},
+        )
+
+    def _compare_between_change_handler(self, change):
+        self._record_action(
+            "toggle_compare_between_selections",
+            f"Compare between selections set to {bool(change['new'])}",
+            payload={"compare_between_selections": bool(change["new"])},
+        )
+
+    def _diff_threshold_change_handler(self, change):
+        self._record_action(
+            "change_diffexpr_threshold",
+            "Changed differential-expression threshold",
+            payload={
+                "field": change["owner"].description,
+                "value": change["new"],
+            },
+        )
 
     def _color_by_change_handler(self, change):
         new = change["new"]
@@ -434,6 +540,11 @@ class ScSketch:
             self.scatter.color(by=new, map="magma")
         self._hide_gene_expression_caption()
         self._refresh_scatter_non_spatial_points()
+        self._record_action(
+            "change_color_by",
+            f"Changed color by to {new}",
+            payload={"color_by": new},
+        )
 
     # -- Selection management ----------------------------------------------
 
@@ -461,6 +572,12 @@ class ScSketch:
             if change["new"]:
                 scatter.zoom(to=selection.points, animation=500, padding=2)
                 self.active_selection = selection
+                self._record_action(
+                    "focus_selection",
+                    f"Focused selection {selection.name}",
+                    selection=selection.name,
+                    payload={"n_cells": int(len(selection.points))},
+                )
                 if self.analysis_mode == "differential":
                     if selection.cached_diffexpr is not None:
                         self._show_diffexpr_results(
@@ -488,6 +605,7 @@ class ScSketch:
         selection_label_widget.observe(focus_handler, names=["focus"])
 
         def remove_handler(change):
+            self._archive_selection(selection)
             ctrl.selections_elements.children = [
                 e for e in ctrl.selections_elements.children if e != element
             ]
@@ -538,6 +656,12 @@ class ScSketch:
                         )
             self._update_annotations()
             ctrl.compute_predicates.disabled = len(self.selections.selections) == 0
+            self._record_action(
+                "remove_selection",
+                f"Removed selection {selection.name}",
+                selection=selection.name,
+                payload={"n_cells": int(len(selection.points))},
+            )
 
         selection_remove.on_click(remove_handler)
         ctrl.selections_elements.children = ctrl.selections_elements.children + (element,)
@@ -580,6 +704,7 @@ class ScSketch:
                 path=spine,
             )
             self.selections.selections.append(sel)
+            self._archive_selection(sel)
             self._add_selection_element(sel)
 
     def _add_selection(self):
@@ -620,6 +745,7 @@ class ScSketch:
             path=spine,
         )
         self.selections.selections.append(sel)
+        self._archive_selection(sel)
         self._add_selection_element(sel)
 
     def _selection_add_handler(self, event):
@@ -692,6 +818,17 @@ class ScSketch:
                     ctrl.compute_predicates,
                     ctrl.directional_progress_box,
                 )
+            if self.active_selection is not None:
+                self._archive_selection(self.active_selection)
+                self._record_action(
+                    "save_selection",
+                    f"Saved selection {self.active_selection.name}",
+                    selection=self.active_selection.name,
+                    payload={
+                        "n_cells": int(len(self.active_selection.points)),
+                        "lasso_type": self.scatter.widget.lasso_type,
+                    },
+                )
         except Exception:
             self.logger.exception("Error in _selection_add_handler")
 
@@ -713,6 +850,7 @@ class ScSketch:
                 ctrl.compute_predicates,
                 ctrl.directional_progress_box,
             )
+        self._record_action("clear_results", "Cleared visible results")
 
     # -- Directional analysis -----------------------------------------------
 
@@ -808,6 +946,19 @@ class ScSketch:
             self._set_progress("Directional", 3, 4, "Caching results")
             for sel, res in zip(sels_for_run.selections, directional_results):
                 sel.cached_results = res
+                self._record_action(
+                    "compute_directional",
+                    f"Computed directional results for {sel.name}",
+                    selection=sel.name,
+                    payload={
+                        "result_count": int(len(res)),
+                        "compare_between_selections": bool(
+                            ctrl.compute_predicates_between_selections is not None
+                            and ctrl.compute_predicates_between_selections.value
+                        ),
+                        "fdr_alpha": float(self.fdr_alpha),
+                    },
+                )
             self._set_progress("Directional", 4, 4, "Rendering")
             self._show_directional_results(directional_results)
         except Exception:
@@ -837,6 +988,16 @@ class ScSketch:
                 self._pending_diffexpr = {"points": np.sort(np.unique(sel)), "results": res}
                 self._set_progress("DE", 3, 4, "Formatting results")
                 self._show_diffexpr_results(res, label, selected_indices=np.unique(sel))
+                self._record_action(
+                    "compute_diffexpr",
+                    "Computed DE for current unsaved selection",
+                    payload={
+                        "n_cells": int(len(np.unique(sel))),
+                        "result_count": int(len(res)),
+                        "t_threshold": float(ctrl.diff_t_threshold.value),
+                        "p_threshold": float(ctrl.diff_p_threshold.value),
+                    },
+                )
             elif self.active_selection is not None:
                 label = self.active_selection.name
                 self._set_progress("DE", 2, 4, "Computing statistics")
@@ -847,6 +1008,17 @@ class ScSketch:
                     res,
                     label,
                     selected_indices=np.asarray(self.active_selection.points, dtype=int),
+                )
+                self._record_action(
+                    "compute_diffexpr",
+                    f"Computed DE for {label}",
+                    selection=label,
+                    payload={
+                        "n_cells": int(len(self.active_selection.points)),
+                        "result_count": int(len(res)),
+                        "t_threshold": float(ctrl.diff_t_threshold.value),
+                        "p_threshold": float(ctrl.diff_p_threshold.value),
+                    },
                 )
             self._set_progress("DE", 4, 4, "Done")
         finally:
@@ -930,6 +1102,11 @@ class ScSketch:
         """
         if path is None:
             return _export_session(self)
+        self._record_action(
+            "export_session",
+            f"Exported session to {path}",
+            payload={"path": str(path)},
+        )
         return _write_session(self, path)
 
     def load_session(self, session: str | Path | dict) -> list[str]:
@@ -945,6 +1122,20 @@ class ScSketch:
             _read_session(session) if isinstance(session, (str, Path)) else session
         )
         return _load_session(self, document)
+
+    def get_action_log(self) -> pd.DataFrame:
+        """Return the recorded user-action log as a DataFrame."""
+        return pd.DataFrame(getattr(self, "action_log", []))
+
+    def show_action_log(self):
+        """Return a clickable table of recorded user actions."""
+        def apply_entry(entry):
+            document = _export_session(self)
+            step_index = max(0, int(entry.get("index") or 1) - 1)
+            step = _apply_playback_step(self, document, step_index)
+            return step.get("_status") or step.get("label") or step.get("type") or ""
+
+        return _build_action_log_table(self, apply_entry=apply_entry)
 
     def show_session_player(self, session: str | Path | dict | None = None):
         """Return a playback UI for a saved session.

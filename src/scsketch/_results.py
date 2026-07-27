@@ -103,6 +103,8 @@ def show_directional_results(
     on_gene_selected: Optional[Callable[[str], None]],
     on_results_cleared: Callable,
     log: Callable,
+    on_pathway_selected: Optional[Callable[[str], None]] = None,
+    initial_gene: Optional[str] = None,
 ) -> None:
     """Populate the sidebar with gene correlation results and wire pathway interactions.
 
@@ -125,6 +127,10 @@ def show_directional_results(
         Currently focused selection (may be ``None``).
     on_gene_selected:
         Optional callback invoked before rendering gene-specific secondary views.
+    on_pathway_selected:
+        Optional callback invoked before rendering a selected Reactome pathway.
+    initial_gene:
+        Optional gene to render immediately, used by session playback.
     on_results_cleared:
         Callback invoked when the user clicks *Clear Results*.
     log:
@@ -183,8 +189,9 @@ def show_directional_results(
         overflow="auto",
     )
 
-    def on_gene_click(change):
-        gene = change["new"]
+    def render_gene(gene: str) -> None:
+        if not gene:
+            return
         log(f"[UI] gene clicked: {gene!r}")
         try:
             if on_gene_selected is not None:
@@ -282,12 +289,17 @@ def show_directional_results(
         except Exception:
             logger.exception("Error handling gene click")
 
+    def on_gene_click(change):
+        render_gene(change["new"])
+
     interactive_svg_widget = InteractiveSVG()
 
     def on_pathway_click(change):
         pathway_id = change["new"]
         if not pathway_id:
             return
+        if on_pathway_selected is not None:
+            on_pathway_selected(pathway_id)
         svg_b64 = fetch_pathway_svg(pathway_id)
         if svg_b64 is None:
             return
@@ -299,6 +311,8 @@ def show_directional_results(
     gene_table_widget.observe(on_gene_click, names=["selected_gene"])
     pathway_table_widget.observe(on_pathway_click, names=["selected_pathway"])
     selections_predicates.children = [gene_table_widget]
+    if initial_gene:
+        render_gene(initial_gene)
     log("Showing directional results...")
 
 
@@ -319,6 +333,7 @@ def show_diffexpr_results(
     scatter,                     # Scatter | None
     on_gene_selected: Optional[Callable[[str], None]],
     log: Callable,
+    initial_gene: Optional[str] = None,
 ) -> None:
     """Populate the sidebar with differential expression results and violin plots.
 
@@ -345,6 +360,8 @@ def show_diffexpr_results(
         The jscatter Scatter instance (for fallback selection lookup).
     on_gene_selected:
         Optional callback invoked before rendering gene-specific secondary views.
+    initial_gene:
+        Optional gene to render immediately, used by session playback.
     log:
         Debug logging callable.
     """
@@ -402,8 +419,7 @@ def show_diffexpr_results(
     pathway_table_container.layout.display = "block"
     reactome_diagram_container.layout.display = "none"
 
-    def on_gene_click(change):
-        gene = change["new"]
+    def render_gene(gene: str) -> None:
         if not gene:
             return
         try:
@@ -476,8 +492,13 @@ def show_diffexpr_results(
         except Exception:
             logger.exception("Error rendering differential plot")
 
+    def on_gene_click(change):
+        render_gene(change["new"])
+
     gene_table_widget.observe(on_gene_click, names=["selected_gene"])
     selections_predicates.children = [gene_table_widget]
+    if initial_gene:
+        render_gene(initial_gene)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

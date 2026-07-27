@@ -22,6 +22,7 @@ event handlers, but delegates all other responsibilities to single-purpose modul
 | `_results.py` | `show_directional_results()`, `show_diffexpr_results()` — result panel wiring |
 | `_analysis.py` | Pure statistics: `test_direction`, `lord_test`, numba-accelerated DE kernels |
 | `_utils.py` | `Selection`, `Selections`, `Lasso`, geometry helpers, `create_selection` |
+| `_action_log.py` | Structured user-action logging and clickable audit-log table |
 | `_session.py` | Versioned session-log export/import, dataset fingerprints, selection rehydration |
 | `_logging.py` | `configure_logging()` — module-scoped logger, `LogLevel` type alias |
 | `_cli.py` | `scsketch demo` CLI entry point (downloads + launches demo notebook via `uv`) |
@@ -66,6 +67,14 @@ All UI state lives on a `ScSketch` instance:
 - `self._pending_diffexpr` (`dict | None`)
   - Temporary cache for differential results computed from an unsaved “current selection”.
   - When the user saves that selection, the cached DE results are attached to the created `Selection.cached_diffexpr`.
+- `self.action_log` (`list[dict]`)
+  - Structured audit trail of meaningful user actions recorded by `ScSketch` event handlers.
+  - Entries include an index, timestamp, action type, human-readable label, optional selection name, analysis mode, and JSON-safe payload.
+  - The action log is exported in session JSON and restored on load.
+  - `ScSketch.show_action_log()` renders it as a clickable table; clicking a row jumps to that action in the same reconstructed timeline used by session playback.
+- `self._selection_archive` (`dict[str, Selection]`)
+  - Keeps saved selection snapshots even if they are later removed from the visible selection list.
+  - Exported as `selection_archive` so playback can reconstruct historical selection state while moving backward and forward.
 
 ## Compute vs render
 
@@ -163,6 +172,8 @@ This means JS and CSS can be edited live during development (with `ANYWIDGET_HMR
 - `ScSketch.export_session()` returns a JSON-serializable session document.
 - `ScSketch.export_session(path)` writes that document to disk.
 - `ScSketch.load_session(session_or_path)` loads a session document or JSON file and returns non-fatal compatibility warnings.
+- `ScSketch.get_action_log()` returns the recorded action log as a DataFrame.
+- `ScSketch.show_action_log()` returns a clickable audit-log table for the current sketch.
 - `ScSketch.show_session_player(session_or_path)` returns a small ipywidgets playback panel for stepping through a saved session.
 - Session logs are versioned with `schema_version == "1.0"` and are owned by `_session.py`.
 - A session log stores:
@@ -170,6 +181,8 @@ This means JS and CSS can be edited live during development (with `ANYWIDGET_HMR
   - Initial ScSketch config: metadata columns, default color, height, background, `max_genes`, and directional `fdr_alpha`.
   - UI analysis state: active selection, analysis mode, and DE thresholds when widgets are available.
   - Saved selections: name, index, color, selected cell indices, selected `obs_names`, lasso polygon, hull, path, and cached directional/DE results.
+  - Selection archive: all selections needed to replay history, including selections that were later deleted from the current visible state.
+  - Action log entries recorded while the user works: selection save/focus/remove, mode/color/brush-size changes, threshold changes, compare toggles, computes, result clears, gene/pathway clicks, and session exports.
   - Playback steps synthesized from saved selections and cached result availability.
 - On load, cell identity is restored by `obs_names` first and falls back to saved integer indices when names are unavailable.
 - Loading a session replaces the current saved selections, restores selection overlays, restores active selection, and re-renders cached results when a full widget instance is available.
@@ -177,9 +190,12 @@ This means JS and CSS can be edited live during development (with `ANYWIDGET_HMR
   - `restore_selection` steps restore selections up to the named selection and make that selection active.
   - `show_directional_results` steps restore the relevant selection and show its cached directional results.
   - `show_diffexpr_results` steps restore the relevant selection and show its cached DE results.
+  - `select_gene` steps restore the relevant selection, recolor the embedding, and replay the gene-specific detail panel when cached results are available.
+  - Action-log playback reconstructs the visible selection list at each step from the archived selections, so rewinding before a `remove_selection` action can bring that selection back.
+  - The clickable action-log table uses the same reconstruction path as the session player, so row clicks and step-by-step playback stay consistent.
   - If an older session log has no explicit `steps` field, `_session.py` synthesizes the same step sequence from saved selections.
 - Compatibility warnings are informational. They do not block load, because a user may intentionally replay a session against a reordered or closely related AnnData object.
-- Live event recording is intentionally out of scope for the first playback implementation. Playback currently operates on saved selections and cached results from the session log.
+- Live event recording is intentionally limited to reproducibility-relevant UI actions. Low-level pointer movement while drawing a lasso is not logged separately; the saved selection stores the resulting points and shape.
 
 ## Layout notes
 
