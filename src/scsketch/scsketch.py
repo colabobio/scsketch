@@ -18,6 +18,7 @@ https://github.com/flekschas/jupyter-scatter/blob/main/notebooks/dimbridge.ipynb
 
 from __future__ import annotations
 
+import json
 from html import escape
 from pathlib import Path
 from typing import List, Optional
@@ -36,6 +37,7 @@ from jscatter import Line, okabe_ito
 
 from ._action_log import append_action as _append_action
 from ._action_log import build_action_log_table as _build_action_log_table
+from ._action_log import normalize_action_log as _normalize_action_log
 from ._analysis import lord_test, test_direction
 from ._data import build_embedding_df
 from ._diffexpr import DiffExprEngine
@@ -73,6 +75,30 @@ from ._utils import (
     points_in_polygon,
     split_line_equidistant,
 )
+
+
+def _uploaded_files(value):
+    """Return uploaded file records across ipywidgets 7/8 value formats."""
+    if isinstance(value, dict):
+        return list(value.values())
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return []
+
+
+def _uploaded_content(uploaded) -> bytes:
+    content = (
+        uploaded.get("content")
+        if isinstance(uploaded, dict)
+        else getattr(uploaded, "content", None)
+    )
+    return bytes(content)
+
+
+def _uploaded_name(uploaded) -> str:
+    if isinstance(uploaded, dict):
+        return str(uploaded.get("name") or "")
+    return str(getattr(uploaded, "name", "") or "")
 
 
 class ScSketch:
@@ -143,6 +169,7 @@ class ScSketch:
         self.analysis_mode: str = "directional"  # "directional" | "differential"
         self.action_log: list[dict] = []
         self._action_log_paused = False
+        self._history_dropdown_paused = False
         self._selection_archive: dict[str, Selection] = {}
 
         # -- LORD++ online state --------------------------------------------
@@ -220,7 +247,7 @@ class ScSketch:
             return None
         if not hasattr(self, "action_log"):
             self.action_log = []
-        return _append_action(
+        entry = _append_action(
             self.action_log,
             action_type,
             label,
@@ -228,6 +255,8 @@ class ScSketch:
             analysis_mode=self.analysis_mode,
             payload=payload,
         )
+        self._refresh_history_options()
+        return entry
 
     def _archive_selection(self, selection: Selection | None) -> None:
         """Keep a snapshot reference for playback of selections later removed."""
@@ -446,6 +475,13 @@ class ScSketch:
         )
         ctrl.diff_t_threshold.observe(self._diff_threshold_change_handler, names=["value"])
         ctrl.diff_p_threshold.observe(self._diff_threshold_change_handler, names=["value"])
+        ctrl.history_dropdown.observe(
+            self._history_dropdown_change_handler,
+            names=["value"],
+        )
+        ctrl.session_save.on_click(self._session_save_handler)
+        ctrl.session_upload.observe(self._session_upload_handler, names=["value"])
+        self._refresh_history_options()
 
     def _lasso_selection_polygon_change_handler(self, change):
         scatter = self.scatter
@@ -545,6 +581,103 @@ class ScSketch:
             f"Changed color by to {new}",
             payload={"color_by": new},
         )
+
+    # -- Session UI controls -------------------------------------------------
+
+    def _refresh_history_options(self):
+        ctrl = getattr(self, "_ctrl", None)
+        if ctrl is None or not hasattr(ctrl, "history_dropdown"):
+            return
+
+        rows = _normalize_action_log(getattr(self, "action_log", []))
+        options = [("No recorded actions", None)]
+        if rows:
+            options = [("Choose action...", None)] + [
+                (f"{entry['index']}: {entry['label']}", entry["index"] - 1)
+                for entry in rows
+            ]
+
+        current = ctrl.history_dropdown.value
+        valid_values = {value for _, value in options}
+        next_value = current if current in valid_values else None
+
+        self._history_dropdown_paused = True
+        try:
+            ctrl.history_dropdown.options = options
+            ctrl.history_dropdown.disabled = not rows
+            ctrl.history_dropdown.value = next_value
+        finally:
+            self._history_dropdown_paused = False
+
+    def _apply_history_action(self, step_index: int) -> str:
+        document = _export_session(self)
+        step = _apply_playback_step(self, document, int(step_index))
+        self._refresh_history_options()
+        return step.get("_status") or step.get("label") or step.get("type") or ""
+
+    def _history_dropdown_change_handler(self, change):
+        if getattr(self, "_history_dropdown_paused", False):
+            return
+        step_index = change["new"]
+        if step_index is None:
+            return
+        try:
+            message = self._apply_history_action(int(step_index))
+            self._set_session_status(f"<em>{escape(message)}</em>")
+        except Exception as exc:
+            self.logger.exception("Failed to restore history action")
+            self._set_session_status(
+                f"<em>Could not restore action: {escape(str(exc))}</em>"
+            )
+
+    def _set_session_status(self, html: str) -> None:
+        if not html:
+            self._ctrl.session_status.value = ""
+            self._ctrl.session_status.layout.display = "none"
+            return
+        self._ctrl.session_status.value = (
+            '<div style="max-width:100%;overflow-wrap:anywhere;'
+            f'white-space:normal;">{html}</div>'
+        )
+        self._ctrl.session_status.layout.display = "block"
+
+    def _session_save_handler(self, event):
+        filename = self._ctrl.session_filename.value.strip()
+        path = Path(filename or "scsketch-session.scsketch.json")
+        try:
+            document = self.export_session(path)
+            n_actions = len(document.get("action_log") or [])
+            self._set_session_status(
+                f"<em>Saved {n_actions} actions to "
+                f"<code>{escape(str(path))}</code>.</em>"
+            )
+        except Exception as exc:
+            self.logger.exception("Failed to save session")
+            self._set_session_status(
+                f"<em>Could not save session: {escape(str(exc))}</em>"
+            )
+
+    def _session_upload_handler(self, change):
+        files = _uploaded_files(change["new"])
+        if not files:
+            return
+        uploaded = files[0]
+        try:
+            content = _uploaded_content(uploaded)
+            document = json.loads(content.decode("utf-8"))
+            warnings = self.load_session(document)
+            name = _uploaded_name(uploaded) or "uploaded session"
+            n_actions = len(getattr(self, "action_log", []))
+            warning_text = f" {len(warnings)} warnings." if warnings else ""
+            self._set_session_status(
+                f"<em>Loaded {n_actions} actions from "
+                f"<code>{escape(name)}</code>.{warning_text}</em>"
+            )
+        except Exception as exc:
+            self.logger.exception("Failed to load session")
+            self._set_session_status(
+                f"<em>Could not load session: {escape(str(exc))}</em>"
+            )
 
     # -- Selection management ----------------------------------------------
 
@@ -1121,7 +1254,9 @@ class ScSketch:
         document = (
             _read_session(session) if isinstance(session, (str, Path)) else session
         )
-        return _load_session(self, document)
+        warnings = _load_session(self, document)
+        self._refresh_history_options()
+        return warnings
 
     def get_action_log(self) -> pd.DataFrame:
         """Return the recorded user-action log as a DataFrame."""
@@ -1130,10 +1265,8 @@ class ScSketch:
     def show_action_log(self):
         """Return a clickable table of recorded user actions."""
         def apply_entry(entry):
-            document = _export_session(self)
             step_index = max(0, int(entry.get("index") or 1) - 1)
-            step = _apply_playback_step(self, document, step_index)
-            return step.get("_status") or step.get("label") or step.get("type") or ""
+            return self._apply_history_action(step_index)
 
         return _build_action_log_table(self, apply_entry=apply_entry)
 

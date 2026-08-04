@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import ipywidgets as ipyw
 import numpy as np
 from anndata import AnnData
 
@@ -32,10 +33,12 @@ def _sketch(adata):
     sketch.background_color = "#111111"
     sketch.max_genes = 0
     sketch.fdr_alpha = 0.05
+    sketch.logger = SimpleNamespace(exception=lambda *args, **kwargs: None)
     sketch.analysis_mode = "directional"
     sketch.active_selection = None
     sketch.action_log = []
     sketch._action_log_paused = False
+    sketch._history_dropdown_paused = False
     sketch._selection_archive = {}
     sketch.scatter = None
     sketch._ctrl = None
@@ -261,6 +264,74 @@ def test_show_action_log_click_reconstructs_deleted_selection_timeline():
         "Selection 1",
         "Selection 2",
     ]
+
+
+def test_history_options_include_recorded_actions():
+    sketch = _sketch(_adata())
+    sketch._ctrl = SimpleNamespace(
+        history_dropdown=ipyw.Dropdown(options=[("No recorded actions", None)]),
+    )
+
+    sketch._record_action(
+        "save_selection",
+        "Saved selection Selection 1",
+        selection="Selection 1",
+    )
+
+    assert not sketch._ctrl.history_dropdown.disabled
+    assert sketch._ctrl.history_dropdown.options == (
+        ("Choose action...", None),
+        ("1: Saved selection Selection 1", 0),
+    )
+
+
+def test_history_action_jump_reconstructs_deleted_selection():
+    sketch = _sketch(_adata())
+    _add_de_selection(sketch)
+    for selection in sketch.selections.selections:
+        sketch._archive_selection(selection)
+    sketch._record_action(
+        "save_selection",
+        "Saved selection Selection 1",
+        selection="Selection 1",
+    )
+    sketch._record_action(
+        "save_selection",
+        "Saved selection Selection 2",
+        selection="Selection 2",
+    )
+    removed = sketch.selections.selections.pop()
+    sketch._archive_selection(removed)
+    sketch._record_action(
+        "remove_selection",
+        "Removed selection Selection 2",
+        selection="Selection 2",
+    )
+
+    message = sketch._apply_history_action(1)
+
+    assert message == "Restored selection Selection 2."
+    assert [selection.name for selection in sketch.selections.selections] == [
+        "Selection 1",
+        "Selection 2",
+    ]
+
+
+def test_session_save_button_writes_json_file(tmp_path):
+    sketch = _sketch(_adata())
+    path = tmp_path / "saved.scsketch.json"
+    sketch._ctrl = SimpleNamespace(
+        history_dropdown=ipyw.Dropdown(options=[("No recorded actions", None)]),
+        diff_t_threshold=ipyw.FloatText(value=2.0),
+        diff_p_threshold=ipyw.FloatText(value=0.05),
+        session_filename=ipyw.Text(value=str(path)),
+        session_status=ipyw.HTML(""),
+    )
+
+    sketch._session_save_handler(None)
+
+    assert path.exists()
+    assert "Saved 1 actions" in sketch._ctrl.session_status.value
 
 
 def test_build_playback_steps_synthesizes_legacy_session_steps():
