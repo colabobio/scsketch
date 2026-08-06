@@ -83,7 +83,12 @@ class UIControls:
 
     # ── Plot controls ────────────────────────────────────────────────────────
     color_by: Dropdown
+    history_dropdown: Dropdown
     gene_expression_caption: ipyw.HTML
+    session_filename: Text
+    session_save: ipyw.Button
+    session_upload: ipyw.FileUpload
+    session_status: ipyw.HTML
 
     # ── Result display containers ────────────────────────────────────────────
     pathway_table_container: VBox
@@ -233,9 +238,78 @@ def build_controls(
         value=color_by_default,
         description="Color By:",
     )
+    color_by.layout.width = "100%"
+    color_by.layout.min_width = "0px"
+    color_by.style = {"description_width": "58px"}
+
+    history_dropdown = Dropdown(
+        options=[("No recorded actions", None)],
+        value=None,
+        description="History:",
+        disabled=True,
+    )
+    history_dropdown.layout.width = "100%"
+    history_dropdown.layout.min_width = "0px"
+    history_dropdown.style = {"description_width": "50px"}
+
     gene_expression_caption = ipyw.HTML(
         "",
         layout=Layout(display="none", width="100%", min_width="0px"),
+    )
+    color_history_controls = GridBox(
+        [color_by, history_dropdown],
+        layout=Layout(
+            grid_template_columns="minmax(0, 1fr) minmax(0, 1fr)",
+            width="100%",
+            max_width="100%",
+            min_width="0px",
+            grid_gap="8px",
+            overflow="hidden",
+        ),
+    )
+
+    # ── Session import/export controls ───────────────────────────────────────
+    session_filename = Text(
+        value="scsketch-session.scsketch.json",
+        description="Session:",
+    )
+    session_filename.layout.width = "100%"
+    session_filename.layout.min_width = "0px"
+    session_filename.style = {"description_width": "58px"}
+    session_save = ipyw.Button(
+        description="",
+        icon="save",
+        tooltip="Save scSketch session JSON",
+        layout=Layout(width="34px", min_width="0px"),
+    )
+    session_upload = ipyw.FileUpload(
+        accept=".json,.scsketch.json",
+        multiple=False,
+        description="",
+        icon="upload",
+        tooltip="Load scSketch session JSON",
+        layout=Layout(width="34px", min_width="0px", overflow="hidden"),
+    )
+    session_status = ipyw.HTML(
+        "",
+        layout=Layout(
+            display="none",
+            width="100%",
+            min_width="0px",
+            overflow="hidden",
+        ),
+    )
+    session_controls = GridBox(
+        [session_filename, session_save, session_upload],
+        layout=Layout(
+            grid_template_columns="minmax(0, 1fr) 34px 34px",
+            width="100%",
+            max_width="100%",
+            min_width="0px",
+            grid_gap="4px",
+            align_items="center",
+            overflow="hidden",
+        ),
     )
 
     # ── Result display containers ────────────────────────────────────────────
@@ -277,8 +351,19 @@ def build_controls(
 
     # ── Plot wrapper ─────────────────────────────────────────────────────────
     plot_wrapper = VBox(
-        [scatter.show(), gene_expression_caption, color_by],
-        layout=Layout(width="100%", min_width="0px"),
+        [
+            scatter.show(),
+            gene_expression_caption,
+            color_history_controls,
+            session_controls,
+            session_status,
+        ],
+        layout=Layout(
+            width="100%",
+            max_width="100%",
+            min_width="0px",
+            overflow="hidden",
+        ),
     )
 
     # ── Suppress Jupyter output-area overflow clipping ───────────────────────
@@ -360,7 +445,12 @@ def build_controls(
         diff_controls_box=diff_controls_box,
         compute_predicates_wrapper=compute_predicates_wrapper,
         color_by=color_by,
+        history_dropdown=history_dropdown,
         gene_expression_caption=gene_expression_caption,
+        session_filename=session_filename,
+        session_save=session_save,
+        session_upload=session_upload,
+        session_status=session_status,
         pathway_table_container=pathway_table_container,
         reactome_diagram_container=reactome_diagram_container,
         plot_wrapper=plot_wrapper,
