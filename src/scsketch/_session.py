@@ -40,6 +40,7 @@ def export_session(sketch) -> dict[str, Any]:
                 else sketch.active_selection.name
             ),
             "differential": _differential_state(sketch),
+            "multi_view": _multi_view_state(sketch),
         },
         "selections": [
             _serialize_selection(selection, adata)
@@ -272,6 +273,13 @@ def _differential_state(sketch) -> dict[str, Any]:
         "t_threshold": getattr(ctrl.diff_t_threshold, "value", None),
         "p_threshold": getattr(ctrl.diff_p_threshold, "value", None),
     }
+
+
+def _multi_view_state(sketch) -> bool | None:
+    ctrl = getattr(sketch, "_ctrl", None)
+    if ctrl is None or not hasattr(ctrl, "multi_view_toggle"):
+        return None
+    return bool(ctrl.multi_view_toggle.value)
 
 
 def _dataset_fingerprint(adata) -> dict[str, Any]:
@@ -549,6 +557,16 @@ def _restore_widget_state(sketch, state: dict[str, Any]) -> None:
     else:
         ctrl.directional_controls_box.layout.display = "flex"
         ctrl.diff_controls_box.layout.display = "none"
+
+    if state.get("multi_view") is not None and hasattr(ctrl, "multi_view_toggle"):
+        was_paused = getattr(sketch, "_action_log_paused", False)
+        sketch._action_log_paused = True
+        try:
+            ctrl.multi_view_toggle.value = bool(state["multi_view"])
+        finally:
+            sketch._action_log_paused = was_paused
+        if hasattr(sketch, "_apply_multi_view_visibility"):
+            sketch._apply_multi_view_visibility()
 
 
 def _refresh_selection_sidebar(sketch) -> None:
