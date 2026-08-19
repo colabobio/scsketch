@@ -2,8 +2,9 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData
 
-from jscatter import Scatter
+from jscatter import Line, Scatter
 from scsketch._action_log import apply_action_log_entry
+from scsketch._utils import Selection
 from scsketch.scsketch import ScSketch
 
 
@@ -42,6 +43,17 @@ def _extra_view(adata):
         index=adata.obs_names,
     )
     return Scatter(data=data, x="PC1", y="PC2", color_by="cluster")
+
+
+def _selection(points):
+    return Selection(
+        index=1,
+        name="Selection 1",
+        points=np.array(points),
+        color="#00dadb",
+        lasso=Line([[0, 0], [1, 0], [1, 1], [0, 0]]),
+        hull=Line([[0, 0], [1, 0], [1, 1], [0, 0]]),
+    )
 
 
 def test_extra_views_enable_multi_view_panel_and_share_color_map():
@@ -95,6 +107,51 @@ def test_gene_expression_coloring_syncs_to_extra_views():
     assert pca._color_by == "Custom Color Data"
     assert pca._color_labeling["variable"] == "GeneA"
     np.testing.assert_allclose(pca._color_data.to_numpy(), [0.0, 1.0, 2.0, 3.0])
+
+
+def test_active_saved_selection_stays_highlighted_when_main_selection_clears():
+    adata = _adata()
+    pca = _extra_view(adata)
+    sketch = ScSketch(
+        adata=adata,
+        metadata_cols=["cluster"],
+        color_by_default="cluster",
+        extra_views={"PCA": pca},
+    )
+    sketch.active_selection = _selection([0, 2])
+
+    sketch._main_selection_multi_view_handler({"new": []})
+
+    assert np.asarray(pca.selection()).tolist() == [0, 2]
+
+
+def test_gene_expression_coloring_reapplies_extra_view_selection_highlight(monkeypatch):
+    adata = _adata()
+    pca = _extra_view(adata)
+    sketch = ScSketch(
+        adata=adata,
+        metadata_cols=["cluster"],
+        color_by_default="cluster",
+        extra_views={"PCA": pca},
+    )
+    sketch.active_selection = _selection([0, 2])
+    sketch._sync_extra_views_to_active_selection()
+    calls = []
+    original_selection = pca.selection
+
+    def selection_spy(*args, **kwargs):
+        if args:
+            calls.append(np.asarray(args[0], dtype=int).tolist())
+        return original_selection(*args, **kwargs)
+
+    monkeypatch.setattr(pca, "selection", selection_spy)
+
+    sketch._color_embedding_by_gene("GeneA")
+
+    assert np.asarray(pca.selection()).tolist() == [0, 2]
+    assert calls[-2:] == [[], [0, 2]]
+    assert pca._color_by == "Custom Color Data"
+    assert pca._color_labeling["variable"] == "GeneA"
 
 
 def test_multi_view_toggle_action_restores_panel_state():

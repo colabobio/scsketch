@@ -83,8 +83,15 @@ All UI state lives on a `ScSketch` instance:
   - When present, the right detail panel starts in multi-view mode and displays the extra views instead of the gene-detail plot.
   - Extra views are normalized to a compact square size before rendering in the right panel.
   - Main-scatter selection and extra-view selections are synchronized by integer point index.
+  - After the user saves a selection, scSketch clears the transient main-scatter selection but keeps the active saved selection highlighted in extra views.
   - Metadata color changes propagate to extra views when their data contains the selected metadata column; categorical columns reuse scSketch's category-to-color map.
   - Gene-result clicks recolor extra views with the same expression vector and continuous color scale used in the main embedding.
+- `self.gene_annotation_species` (`str | int`)
+  - Species filter passed to MyGene.info for gene annotation lookups.
+  - Defaults to `"human"` so existing notebooks keep the same behavior unless a caller opts into another species.
+- `self.reactome_species` (`str | int`)
+  - Species filter passed to Reactome pathway lookups.
+  - Defaults to `"human"`; internally the Reactome helper maps `"human"` / `"Homo sapiens"` to taxon `9606` to preserve the previous hard-coded behavior.
 
 ## Compute vs render
 
@@ -104,9 +111,10 @@ All UI state lives on a `ScSketch` instance:
   - Stateless function — takes results + widget refs, builds the gene table, and wires gene-click handlers.
   - The visible gene table reports a `Discovery Score`, an integer 0-10 ranking score derived from the nominal p-value. The score is intended for prioritizing genes/features during exploratory analysis and is not interpreted as a valid post-selection p-value.
   - Result tables display readable gene labels from symbol-like `adata.var` / `adata.raw.var` columns when available, but keep the original `adata.var_names` identifier in a hidden `_gene_id` field for click handling and expression lookup.
-  - Gene click recolors the main embedding by full-dataset expression using a blue-to-green continuous gradient.
-  - Gene click fetches a cached MyGene.info annotation (`symbol`, `name`, `summary`, IDs) via `_api.fetch_gene_description()` and renders it above the pathway list with a scrollable summary area.
-  - The same gene click also renders a `GeneProjectionPlot` widget for the active selection using the same path-based projection direction as the analysis; expression is loaded for the selected cells only.
+  - Gene click recolors the main embedding by full-dataset expression using a blue-to-green continuous gradient; captions and color legend labels use the readable display name when available while expression lookup still uses the original gene ID.
+  - Gene click fetches a cached MyGene.info annotation (`symbol`, `name`, `summary`, IDs) via `_api.fetch_gene_description()` and renders it above the pathway list with a scrollable summary area. The lookup uses `ScSketch(gene_annotation_species=...)`, which defaults to `"human"`.
+  - The same gene click also queries Reactome through `_api.fetch_pathways()` using `ScSketch(reactome_species=...)`, which defaults to `"human"` / Reactome taxon `9606`.
+  - The gene click also renders a `GeneProjectionPlot` widget for the active selection using the same path-based projection direction as the analysis; expression is loaded for the selected cells only.
 - Differential compute is owned by `DiffExprEngine` (`_diffexpr.py`):
   - Uses `adata.raw.X` if present, else `adata.X`.
   - Compares selected cells vs all non-selected cells using Welch t-test computed from summary stats.
@@ -120,7 +128,7 @@ All UI state lives on a `ScSketch` instance:
     `_analysis.diffexpr_sum_sqsum_selected_csr` (Numba-accelerated when the `[fast]` extra is installed;
     pure-NumPy fallback otherwise).
 - Differential rendering happens in `_results.show_diffexpr_results(...)`:
-  - Stateless function — renders a table with `T` and `Discovery Score`, wires gene-click to embedding recoloring, cached MyGene.info annotation rendering, and a `GeneViolinPlot` widget.
+  - Stateless function — renders a table with `T` and `Discovery Score`, wires gene-click to embedding recoloring, cached MyGene.info annotation rendering using `ScSketch(gene_annotation_species=...)`, and a `GeneViolinPlot` widget.
 
 ## Multi-view mode
 
@@ -137,6 +145,7 @@ All UI state lives on a `ScSketch` instance:
 - `_ui.build_controls()` adds a right-panel `Multi-view` OFF/ON segmented toggle only when extra views are provided.
 - When the toggle is ON:
   - The right panel shows the extra scatter view(s).
+  - Saved active selections remain highlighted in the extra view(s), even after the main view clears its transient selected-point state.
   - Gene clicks still recolor the main embedding.
   - Gene clicks also recolor the extra scatter view(s) by the same gene expression values, which supports visual comparison of expression gradients across embeddings.
   - Gene projection, violin, pathway table, and Reactome detail panels are hidden so the extra view stays visible.

@@ -32,15 +32,19 @@ function render({ model, el }) {
     if (col === "p") {
       return "ct-col-pvalue";
     }
+    if (col === "Discovery Score") {
+      return "ct-col-score";
+    }
+    if (col === "R" || col === "T" || col === "alpha_i") {
+      return "ct-col-stat";
+    }
     return "ct-col-metric";
   };
 
   const initializeTable = () => {
     const data = model.get("data") || [];
 
-    // Always show these columns, in this order:
-    // Default is directional mode: ["Gene", "R", "p", "Selection"].
-    const columns = model.get("columns") || ["Gene", "R", "p", "Selection"];
+    const columns = model.get("columns") || ["Gene", "R", "Discovery Score", "Selection"];
 
     // Header
     const headerRow = document.createElement("tr");
@@ -55,12 +59,13 @@ function render({ model, el }) {
 
     rowsCache = data.map(row => {
       const tr = document.createElement("tr");
-      const geneVal = (row["Gene"] ?? "").toString();
-      tr.dataset.gene = geneVal.toLowerCase();
+      const geneId = (row["_gene_id"] ?? row["Gene"] ?? "").toString();
+      const geneVal = (row["Gene"] ?? geneId).toString();
+      tr.dataset.gene = `${geneVal} ${geneId}`.toLowerCase();
       tr.style.cursor = "pointer";
       tr.onclick = () => {
-        if (geneVal) {
-          model.set("selected_gene", geneVal);
+        if (geneId) {
+          model.set("selected_gene", geneId);
           model.save_changes();
         }
       };
@@ -74,6 +79,9 @@ function render({ model, el }) {
           // format to 4 decimal places if numeric
           const num = Number(val);
           td.textContent = Number.isFinite(num) ? num.toFixed(4) : (val ?? "");
+        } else if (col === "Discovery Score") {
+          const num = Number(val);
+          td.textContent = Number.isFinite(num) ? Math.round(num).toString() : (val ?? "");
         } else if (col === "p") {
           const num = Number(val);
           td.textContent = Number.isFinite(num) ? num.toExponential(3) : (val ?? "");
@@ -83,7 +91,10 @@ function render({ model, el }) {
           td.textContent = (val ?? "").toString();
         }
 
-        td.title = td.textContent;
+        td.title =
+          col === "Gene" && geneId && geneId !== td.textContent
+            ? `${td.textContent} (${geneId})`
+            : td.textContent;
         tr.appendChild(td);
       });
 

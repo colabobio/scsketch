@@ -14,5 +14,8 @@ class CorrelationTable(AnyWidget):
     _css = _STATIC / "correlation_table.css"
 
     data = List(Dict()).tag(sync=True)
-    columns = List(Unicode(), default_value=["Gene", "R", "p", "Selection"]).tag(sync=True)
+    columns = List(
+        Unicode(),
+        default_value=["Gene", "R", "Discovery Score", "Selection"],
+    ).tag(sync=True)
     selected_gene = traitlets.Unicode("").tag(sync=True)

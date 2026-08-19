@@ -123,6 +123,8 @@ class ScSketch:
         verbosity: LogLevel = "warning",
         diffexpr_disk_cache_dir: str | Path | None = None,
         extra_views: dict[str, Scatter] | None = None,
+        gene_annotation_species: str | int = "human",
+        reactome_species: str | int = "human",
     ):
         """
         Initialize ScSketch widget.
@@ -142,6 +144,10 @@ class ScSketch:
                 :class:`jscatter.Scatter` instances shown in the right panel
                 when multi-view mode is enabled. Extra views are matched to the
                 main scSketch view by row index.
+            gene_annotation_species: Species filter passed to MyGene.info gene
+                annotation lookups. Defaults to human.
+            reactome_species: Species filter passed to Reactome pathway lookups.
+                Defaults to human.
         """
         self.logger = configure_logging(verbosity)
         self.adata = adata
@@ -151,6 +157,8 @@ class ScSketch:
         self.max_genes = max_genes
         self.fdr_alpha = fdr_alpha
         self.verbosity = verbosity
+        self.gene_annotation_species = gene_annotation_species
+        self.reactome_species = reactome_species
         self.extra_views: dict[str, Scatter] = dict(extra_views or {})
         self._multi_view_syncing = False
         self._extra_view_size = max(240, min(int(height), 420))
@@ -308,6 +316,8 @@ class ScSketch:
             initial_gene=initial_gene,
             show_gene_details=self._show_gene_details_in_right_panel,
             gene_display_name=self._display_gene_name,
+            gene_annotation_species=self.gene_annotation_species,
+            reactome_species=self.reactome_species,
         )
         self._apply_multi_view_visibility()
 
@@ -335,6 +345,7 @@ class ScSketch:
             initial_gene=initial_gene,
             show_gene_details=self._show_gene_details_in_right_panel,
             gene_display_name=self._display_gene_name,
+            gene_annotation_species=self.gene_annotation_species,
         )
         self._apply_multi_view_visibility()
 
@@ -387,7 +398,7 @@ class ScSketch:
         cmap = colormaps["viridis"]
         return [to_hex(cmap(t)) for t in np.linspace(0.0, 1.0, steps)]
 
-    def _show_gene_expression_caption(self, gene: str):
+    def _show_gene_expression_caption(self, gene: str, display_gene: str | None = None):
         """Show the gene-expression color caption beneath the scatterplot."""
         colors = self._gene_expression_color_map(7)
         denom = max(1, len(colors) - 1)
@@ -395,7 +406,7 @@ class ScSketch:
             f"{color} {int(round(i * 100 / denom))}%"
             for i, color in enumerate(colors)
         )
-        safe_gene = escape(gene)
+        safe_gene = escape(display_gene or gene)
         self._ctrl.gene_expression_caption.value = f"""
 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;
             margin:4px 0 2px 58px;font:12px sans-serif;color:#333;">
@@ -417,6 +428,7 @@ class ScSketch:
         """Recolor the full embedding by expression of the selected gene."""
         if not gene:
             return
+        display_gene = self._display_gene_name(gene)
 
         if gene in self.df.columns:
             expr = pd.to_numeric(self.df[gene], errors="coerce").to_numpy(dtype=float)
@@ -443,13 +455,15 @@ class ScSketch:
             by=expr,
             map=self._gene_expression_color_map(),
             norm=(vmin, vmax),
-            labeling={"minValue": "Low", "maxValue": "High", "variable": gene},
+            labeling={"minValue": "Low", "maxValue": "High", "variable": display_gene},
         )
-        self._color_extra_views_by_gene_expression(gene, expr, vmin, vmax)
-        self._show_gene_expression_caption(gene)
+        self._color_extra_views_by_gene_expression(
+            gene, display_gene, expr, vmin, vmax
+        )
+        self._show_gene_expression_caption(gene, display_gene)
         self._refresh_scatter_non_spatial_points()
         self._log(
-            f"[color] recolored embedding for gene {gene!r} "
+            f"[color] recolored embedding for gene {gene!r} ({display_gene!r}) "
             f"range=[{vmin:.4g}, {vmax:.4g}]"
         )
 
@@ -586,6 +600,10 @@ class ScSketch:
         self._multi_view_syncing = True
         try:
             selection = self._clean_multi_view_selection(change["new"])
+            if not selection and self.active_selection is not None:
+                selection = self._clean_multi_view_selection(
+                    self.active_selection.points
+                )
             for view in self.extra_views.values():
                 view.selection(selection)
         finally:
@@ -597,6 +615,28 @@ class ScSketch:
         self._multi_view_syncing = True
         try:
             self.scatter.selection(self._clean_multi_view_selection(change["new"]))
+        finally:
+            self._multi_view_syncing = False
+
+    def _current_multi_view_selection(self) -> list[int]:
+        if self.scatter is not None:
+            selection = self._clean_multi_view_selection(self.scatter.selection())
+            if selection:
+                return selection
+        if self.active_selection is not None:
+            return self._clean_multi_view_selection(self.active_selection.points)
+        return []
+
+    def _sync_extra_views_to_active_selection(self, *, force: bool = False) -> None:
+        if not self.extra_views:
+            return
+        points = self._current_multi_view_selection()
+        self._multi_view_syncing = True
+        try:
+            for view in self.extra_views.values():
+                if force and points:
+                    view.selection([])
+                view.selection(points)
         finally:
             self._multi_view_syncing = False
 
@@ -623,6 +663,7 @@ class ScSketch:
     def _color_extra_views_by_gene_expression(
         self,
         gene: str,
+        display_gene: str,
         expr: np.ndarray,
         vmin: float,
         vmax: float,
@@ -641,9 +682,14 @@ class ScSketch:
                 by=expr,
                 map=self._gene_expression_color_map(),
                 norm=(vmin, vmax),
-                labeling={"minValue": "Low", "maxValue": "High", "variable": gene},
+                labeling={
+                    "minValue": "Low",
+                    "maxValue": "High",
+                    "variable": display_gene,
+                },
             )
             self._refresh_extra_view_non_spatial_points(view)
+        self._sync_extra_views_to_active_selection(force=True)
 
     def _configure_extra_views(self) -> None:
         for label, view in self.extra_views.items():
@@ -884,6 +930,7 @@ class ScSketch:
             if change["new"]:
                 scatter.zoom(to=selection.points, animation=500, padding=2)
                 self.active_selection = selection
+                self._sync_extra_views_to_active_selection()
                 self._record_action(
                     "focus_selection",
                     f"Focused selection {selection.name}",
@@ -928,6 +975,7 @@ class ScSketch:
                 self.active_selection = (
                     self.selections.selections[-1] if self.selections.selections else None
                 )
+                self._sync_extra_views_to_active_selection()
                 if self.analysis_mode == "differential":
                     if (
                         self.active_selection is None
@@ -1117,6 +1165,7 @@ class ScSketch:
 
             ctrl.compute_predicates.disabled = False
             self.scatter.selection([])
+            self._sync_extra_views_to_active_selection()
             self._update_annotations()
 
             if len(self.selections.selections) > 1:

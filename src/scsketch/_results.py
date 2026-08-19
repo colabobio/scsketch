@@ -108,6 +108,8 @@ def show_directional_results(
     initial_gene: Optional[str] = None,
     show_gene_details: Optional[Callable[[], bool]] = None,
     gene_display_name: Optional[Callable[[str], str]] = None,
+    gene_annotation_species: str | int = "human",
+    reactome_species: str | int = "human",
 ) -> None:
     """Populate the sidebar with gene correlation results and wire pathway interactions.
 
@@ -138,6 +140,13 @@ def show_directional_results(
         Optional callback returning whether the right-side gene detail panel
         should be populated. Multi-view mode uses this to keep an extra scatter
         view visible while still allowing gene clicks to recolor the embedding.
+    gene_display_name:
+        Optional callback for converting internal gene identifiers to readable
+        table labels.
+    gene_annotation_species:
+        Species filter passed to MyGene.info gene annotation lookups.
+    reactome_species:
+        Species filter passed to Reactome pathway lookups.
     on_results_cleared:
         Callback invoked when the user clicks *Clear Results*.
     log:
@@ -219,10 +228,10 @@ def show_directional_results(
                 reactome_diagram_container.layout.display = "none"
                 return
 
-            description = fetch_gene_description(gene)
+            description = fetch_gene_description(gene, species=gene_annotation_species)
             gene_description.value = _format_gene_description(gene, description)
 
-            pathways = fetch_pathways(gene)
+            pathways = fetch_pathways(gene, species=reactome_species)
             pathway_table_widget.data = pathways
             pathway_table_container.layout.display = "flex"
             pathway_msg.value = (
@@ -358,6 +367,7 @@ def show_diffexpr_results(
     initial_gene: Optional[str] = None,
     show_gene_details: Optional[Callable[[], bool]] = None,
     gene_display_name: Optional[Callable[[str], str]] = None,
+    gene_annotation_species: str | int = "human",
 ) -> None:
     """Populate the sidebar with differential expression results and violin plots.
 
@@ -390,6 +400,11 @@ def show_diffexpr_results(
         Optional callback returning whether the right-side gene detail panel
         should be populated. Multi-view mode uses this to keep an extra scatter
         view visible while still allowing gene clicks to recolor the embedding.
+    gene_display_name:
+        Optional callback for converting internal gene identifiers to readable
+        table labels.
+    gene_annotation_species:
+        Species filter passed to MyGene.info gene annotation lookups.
     log:
         Debug logging callable.
     """
@@ -463,7 +478,7 @@ def show_diffexpr_results(
                 reactome_diagram_container.layout.display = "none"
                 return
 
-            description = fetch_gene_description(gene)
+            description = fetch_gene_description(gene, species=gene_annotation_species)
             gene_description.value = _format_gene_description(gene, description)
 
             X, var_names, _ = de_source_fn()

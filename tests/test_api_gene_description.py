@@ -1,4 +1,8 @@
-from scsketch._api import fetch_gene_description
+from scsketch._api import (
+    fetch_gene_description,
+    fetch_pathways,
+    gene_symbols_to_uniprot,
+)
 
 
 class _Response:
@@ -106,3 +110,74 @@ def test_fetch_gene_description_returns_none_without_match(monkeypatch):
     monkeypatch.setattr("scsketch._api.requests.get", fake_get)
 
     assert fetch_gene_description("NOT_A_GENE") is None
+
+
+def test_fetch_gene_description_accepts_species_override(monkeypatch):
+    fetch_gene_description.cache_clear()
+    calls = []
+
+    def fake_get(url, *, params=None, timeout=None):
+        calls.append((url, params, timeout))
+        return _Response({"hits": [{"symbol": "unc-13", "name": "unc-13"}]})
+
+    monkeypatch.setattr("scsketch._api.requests.get", fake_get)
+
+    assert fetch_gene_description("unc-13", species=6239)["symbol"] == "unc-13"
+    assert calls[0][1]["species"] == 6239
+
+
+def test_fetch_pathways_defaults_to_human_reactome_taxon(monkeypatch):
+    calls = []
+
+    def fake_get(url, *, params=None, timeout=None):
+        calls.append((url, params, timeout))
+        return _Response([{"displayName": "Cell cycle", "stId": "R-HSA-1640170"}])
+
+    monkeypatch.setattr("scsketch._api.requests.get", fake_get)
+
+    assert fetch_pathways("TP53") == [
+        {"name": "Cell cycle", "stId": "R-HSA-1640170"}
+    ]
+    assert calls == [
+        (
+            "https://reactome.org/ContentService/data/mapping/UniProt/TP53/pathways",
+            {"species": "9606"},
+            15,
+        )
+    ]
+
+
+def test_fetch_pathways_accepts_reactome_species_override(monkeypatch):
+    calls = []
+
+    def fake_get(url, *, params=None, timeout=None):
+        calls.append((url, params, timeout))
+        return _Response([])
+
+    monkeypatch.setattr("scsketch._api.requests.get", fake_get)
+
+    assert fetch_pathways("unc-13", species=6239) == []
+    assert calls[0][1]["species"] == "6239"
+
+
+def test_gene_symbols_to_uniprot_accepts_species_override(monkeypatch):
+    calls = []
+
+    def fake_get(url, *, params=None, timeout=None):
+        calls.append((url, params, timeout))
+        return _Response({"hits": [{"uniprot": {"Swiss-Prot": "P04637"}}]})
+
+    monkeypatch.setattr("scsketch._api.requests.get", fake_get)
+
+    assert gene_symbols_to_uniprot(["TP53"], species=9606) == ["P04637"]
+    assert calls == [
+        (
+            "https://mygene.info/v3/query",
+            {
+                "q": "TP53",
+                "fields": "uniprot.Swiss-Prot",
+                "species": 9606,
+            },
+            15,
+        )
+    ]
