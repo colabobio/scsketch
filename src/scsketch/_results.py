@@ -88,6 +88,23 @@ def _format_gene_description(gene: str, description: Optional[dict]) -> str:
     )
 
 
+def _fetch_gene_description_for_display(
+    gene: str,
+    *,
+    species: str | int,
+    gene_display_name: Optional[Callable[[str], str]],
+) -> Optional[dict]:
+    """Fetch annotation by internal gene id, then by readable display name."""
+    description = fetch_gene_description(gene, species=species)
+    if description is not None or gene_display_name is None:
+        return description
+
+    display_gene = str(gene_display_name(gene)).strip()
+    if not display_gene or display_gene == gene:
+        return description
+    return fetch_gene_description(display_gene, species=species)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Directional analysis results
 # ─────────────────────────────────────────────────────────────────────────────
@@ -228,7 +245,11 @@ def show_directional_results(
                 reactome_diagram_container.layout.display = "none"
                 return
 
-            description = fetch_gene_description(gene, species=gene_annotation_species)
+            description = _fetch_gene_description_for_display(
+                gene,
+                species=gene_annotation_species,
+                gene_display_name=gene_display_name,
+            )
             gene_description.value = _format_gene_description(gene, description)
 
             pathways = fetch_pathways(gene, species=reactome_species)
@@ -478,7 +499,11 @@ def show_diffexpr_results(
                 reactome_diagram_container.layout.display = "none"
                 return
 
-            description = fetch_gene_description(gene, species=gene_annotation_species)
+            description = _fetch_gene_description_for_display(
+                gene,
+                species=gene_annotation_species,
+                gene_display_name=gene_display_name,
+            )
             gene_description.value = _format_gene_description(gene, description)
 
             X, var_names, _ = de_source_fn()

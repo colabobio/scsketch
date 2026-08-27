@@ -45,8 +45,8 @@ def fetch_gene_description(
     Parameters
     ----------
     gene:
-        Gene symbol or Ensembl gene ID (e.g. ``"TP53"`` or
-        ``"ENSG00000141510"``).
+        Gene symbol, Ensembl gene ID, or WormBase gene ID (e.g. ``"TP53"``,
+        ``"ENSG00000141510"``, or ``"WBGene00010957"``).
     species:
         Species filter passed to MyGene.info query lookups. Defaults to human to
         match the existing Reactome integration.
@@ -61,7 +61,8 @@ def fetch_gene_description(
 
     params = {"fields": _GENE_DESCRIPTION_FIELDS}
     try:
-        if gene.upper().startswith("ENS"):
+        gene_upper = gene.upper()
+        if gene_upper.startswith("ENS"):
             response = requests.get(
                 f"{_MYGENE_BASE}/gene/{gene}",
                 params=params,
@@ -72,10 +73,15 @@ def fetch_gene_description(
             response.raise_for_status()
             payload = response.json()
         else:
+            query = (
+                f"wormbase:{gene}"
+                if gene_upper.startswith("WBGENE")
+                else f"symbol:{gene}"
+            )
             response = requests.get(
                 f"{_MYGENE_BASE}/query",
                 params={
-                    "q": f"symbol:{gene}",
+                    "q": query,
                     "fields": _GENE_DESCRIPTION_FIELDS,
                     "species": species,
                     "size": 1,

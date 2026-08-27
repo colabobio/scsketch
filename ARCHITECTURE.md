@@ -7,6 +7,38 @@ This document describes how the interactive scSketch UI is structured and where 
 - The user calls `sketch = ScSketch(adata=adata, ...)` to construct a ScSketch object.
 - `sketch.show()` displays a composed ipywidgets UI ready to use.
 
+## Manuscript revision analyses
+
+Revision-specific notebooks live in `Manuscript/revision_analyses/`. They are
+analysis artifacts rather than package runtime code:
+
+- `directional_differential_video_demo.ipynb` records the core interactive
+  scSketch workflow for the supplementary video.
+- `umap_pca_linked_view_suppfig.ipynb` builds the linked UMAP/PCA diagnostic
+  figure used to show that a saved scSketch selection can be inspected in a
+  second projection.
+- `paga_monocle_tutorial_baseline.ipynb` runs a scSketch-independent Scanpy
+  PAGA/DPT baseline on the Monocle tutorial AnnData counts and metadata, exports
+  cluster/pseudotime diagnostics, produces a PAGA/DPT gene ranking for later
+  comparison, and optionally visualizes top pseudotime-associated genes along an
+  inferred PAGA path with `scanpy.pl.paga_path`. It also includes optional
+  bottom cells for launching scSketch on the PAGA-initialized Scanpy UMAP and
+  exporting that session for downstream comparison. After scSketch selections
+  are exported, the notebook can map each saved selection to Leiden/PAGA
+  clusters, infer a connected PAGA path, rank genes by DPT pseudotime within
+  that path, and write per-selection overlap summaries. A final summary section
+  condenses these outputs into a reviewer-facing CSV table and PNG/PDF figure.
+- `paga_scsketch_comparison.ipynb` runs a Leiden-based PAGA analysis from the
+  AnnData neighbor graph, maps a saved scSketch session selection onto the PAGA
+  clusters, infers a connected PAGA path through the selected clusters, and
+  compares a PAGA/DPT path gene ranking against cached scSketch directional
+  genes.
+
+These notebooks consume files in `Manuscript/revision_analyses/data/` and write
+derived CSV/PNG outputs under `Manuscript/revision_analyses/outputs/`. They
+should remain self-contained so reviewer-response analyses are reproducible
+without changing the public `scsketch` API.
+
 ## Module map
 
 `ScSketch` (`scsketch.py`) is a thin **orchestrator** — it owns selection state and wires
@@ -112,7 +144,7 @@ All UI state lives on a `ScSketch` instance:
   - The visible gene table reports a `Discovery Score`, an integer 0-10 ranking score derived from the nominal p-value. The score is intended for prioritizing genes/features during exploratory analysis and is not interpreted as a valid post-selection p-value.
   - Result tables display readable gene labels from symbol-like `adata.var` / `adata.raw.var` columns when available, but keep the original `adata.var_names` identifier in a hidden `_gene_id` field for click handling and expression lookup.
   - Gene click recolors the main embedding by full-dataset expression using a blue-to-green continuous gradient; captions and color legend labels use the readable display name when available while expression lookup still uses the original gene ID.
-  - Gene click fetches a cached MyGene.info annotation (`symbol`, `name`, `summary`, IDs) via `_api.fetch_gene_description()` and renders it above the pathway list with a scrollable summary area. The lookup uses `ScSketch(gene_annotation_species=...)`, which defaults to `"human"`.
+  - Gene click fetches a cached MyGene.info annotation (`symbol`, `name`, `summary`, IDs) via `_api.fetch_gene_description()` and renders it above the pathway list with a scrollable summary area. The lookup uses `ScSketch(gene_annotation_species=...)`, which defaults to `"human"`. Ensembl-like IDs use MyGene's direct gene endpoint, WormBase IDs (`WBGene...`) use a `wormbase:` query, and other IDs are treated as symbols. If the internal gene ID lookup fails and a readable `adata.var` display label exists, the results panel retries the annotation lookup with that display label.
   - The same gene click also queries Reactome through `_api.fetch_pathways()` using `ScSketch(reactome_species=...)`, which defaults to `"human"` / Reactome taxon `9606`.
   - The gene click also renders a `GeneProjectionPlot` widget for the active selection using the same path-based projection direction as the analysis; expression is loaded for the selected cells only.
 - Differential compute is owned by `DiffExprEngine` (`_diffexpr.py`):
@@ -128,7 +160,7 @@ All UI state lives on a `ScSketch` instance:
     `_analysis.diffexpr_sum_sqsum_selected_csr` (Numba-accelerated when the `[fast]` extra is installed;
     pure-NumPy fallback otherwise).
 - Differential rendering happens in `_results.show_diffexpr_results(...)`:
-  - Stateless function — renders a table with `T` and `Discovery Score`, wires gene-click to embedding recoloring, cached MyGene.info annotation rendering using `ScSketch(gene_annotation_species=...)`, and a `GeneViolinPlot` widget.
+  - Stateless function — renders a table with `T` and `Discovery Score`, wires gene-click to embedding recoloring, cached MyGene.info annotation rendering using `ScSketch(gene_annotation_species=...)` with the same internal-ID-then-display-label fallback as directional results, and a `GeneViolinPlot` widget.
 
 ## Multi-view mode
 

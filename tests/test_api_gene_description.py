@@ -126,6 +126,43 @@ def test_fetch_gene_description_accepts_species_override(monkeypatch):
     assert calls[0][1]["species"] == 6239
 
 
+def test_fetch_gene_description_queries_wormbase_id(monkeypatch):
+    fetch_gene_description.cache_clear()
+    calls = []
+
+    def fake_get(url, *, params=None, timeout=None):
+        calls.append((url, params, timeout))
+        return _Response(
+            {
+                "hits": [
+                    {
+                        "_id": "172922",
+                        "symbol": "nduo-6",
+                        "name": "NADH:ubiquinone oxidoreductase",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr("scsketch._api.requests.get", fake_get)
+
+    result = fetch_gene_description("WBGene00010957", species=6239)
+
+    assert result["symbol"] == "nduo-6"
+    assert calls == [
+        (
+            "https://mygene.info/v3/query",
+            {
+                "q": "wormbase:WBGene00010957",
+                "fields": "symbol,name,summary,entrezgene,ensembl.gene,taxid",
+                "species": 6239,
+                "size": 1,
+            },
+            15,
+        )
+    ]
+
+
 def test_fetch_pathways_defaults_to_human_reactome_taxon(monkeypatch):
     calls = []
 
