@@ -17,7 +17,7 @@ analysis artifacts rather than package runtime code:
 - `umap_pca_linked_view_suppfig.ipynb` builds the linked UMAP/PCA diagnostic
   figure used to show that a saved scSketch selection can be inspected in a
   second projection.
-- `paga_monocle_tutorial_baseline.ipynb` runs a scSketch-independent Scanpy
+- `paga_scsketch_comparison_baseline.ipynb` runs a scSketch-independent Scanpy
   PAGA/DPT baseline on the Monocle tutorial AnnData counts and metadata, exports
   cluster/pseudotime diagnostics, produces a PAGA/DPT gene ranking for later
   comparison, and optionally visualizes top pseudotime-associated genes along an
