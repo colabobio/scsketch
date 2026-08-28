@@ -26,8 +26,12 @@ analysis artifacts rather than package runtime code:
   exporting that session for downstream comparison. After scSketch selections
   are exported, the notebook can map each saved selection to Leiden/PAGA
   clusters, infer a connected PAGA path, rank genes by DPT pseudotime within
-  that path, and write per-selection overlap summaries. A final summary section
-  condenses these outputs into a reviewer-facing CSV table and PNG/PDF figure.
+  that path, and write per-selection overlap summaries. The overlap comparison
+  ranks scSketch genes by absolute directional correlation so genes that
+  decrease along the drawn path remain eligible for top-N overlap, while signed
+  and DPT-oriented correlations are retained for direction-agreement checks. A
+  final summary section condenses these outputs into a reviewer-facing CSV table
+  and PNG/PDF figure.
 - `paga_scsketch_comparison.ipynb` runs a Leiden-based PAGA analysis from the
   AnnData neighbor graph, maps a saved scSketch session selection onto the PAGA
   clusters, infers a connected PAGA path through the selected clusters, and

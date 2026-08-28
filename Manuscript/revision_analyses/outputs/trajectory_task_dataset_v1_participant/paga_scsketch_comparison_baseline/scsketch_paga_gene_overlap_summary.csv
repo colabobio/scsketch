@@ -1,0 +1,13 @@
+selection,top_n,scsketch_genes,paga_dpt_genes,overlap,jaccard,scsketch_rank_metric,selection_dpt_orientation_r,candidate_clusters,paga_path_clusters
+Selection 1,25,25,25,17,0.5151515151515151,abs_scsketch_correlation,0.9464982074768777,"20,12,11","11,12,20"
+Selection 1,50,50,50,31,0.4492753623188406,abs_scsketch_correlation,0.9464982074768777,"20,12,11","11,12,20"
+Selection 1,100,100,100,55,0.3793103448275862,abs_scsketch_correlation,0.9464982074768777,"20,12,11","11,12,20"
+Selection 1,200,200,200,96,0.3157894736842105,abs_scsketch_correlation,0.9464982074768777,"20,12,11","11,12,20"
+Selection 2,25,25,25,13,0.35135135135135137,abs_scsketch_correlation,0.8895881984258411,"1,15,6,16,8","8,1,6,15,16"
+Selection 2,50,50,50,24,0.3157894736842105,abs_scsketch_correlation,0.8895881984258411,"1,15,6,16,8","8,1,6,15,16"
+Selection 2,100,100,100,47,0.30718954248366015,abs_scsketch_correlation,0.8895881984258411,"1,15,6,16,8","8,1,6,15,16"
+Selection 2,200,200,200,77,0.23839009287925697,abs_scsketch_correlation,0.8895881984258411,"1,15,6,16,8","8,1,6,15,16"
+Selection 3,25,25,25,13,0.35135135135135137,abs_scsketch_correlation,0.9617125350844652,"13,3","3,13"
+Selection 3,50,50,50,21,0.26582278481012656,abs_scsketch_correlation,0.9617125350844652,"13,3","3,13"
+Selection 3,100,100,100,39,0.2422360248447205,abs_scsketch_correlation,0.9617125350844652,"13,3","3,13"
+Selection 3,200,200,200,82,0.2578616352201258,abs_scsketch_correlation,0.9617125350844652,"13,3","3,13"
