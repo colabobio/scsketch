@@ -1,0 +1,2 @@
+"method","n_cells","n_finite_pseudotime","n_finite_pseudotime_and_embryo_time","spearman_vs_embryo_time","n_clusters","start_cluster","n_lineages"
+"Slingshot_PCA_rooted",6188,6188,6188,0.877292367876794,16,"2",13

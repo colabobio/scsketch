@@ -1,0 +1,24 @@
+index,timestamp,type,label,selection,analysis_mode,payload
+1,2026-08-28T16:19:51.534436+00:00,change_lasso_type,Changed lasso type to brush,,directional,{'lasso_type': 'brush'}
+2,2026-08-28T16:19:53.322911+00:00,change_brush_size,Changed brush size to 66,,directional,{'brush_size': 66}
+3,2026-08-28T16:20:00.955123+00:00,save_selection,Saved selection Selection 1,Selection 1,directional,"{'n_cells': 625, 'lasso_type': 'brush'}"
+4,2026-08-28T16:20:10.245348+00:00,compute_directional,Computed directional results for Selection 1,Selection 1,directional,"{'result_count': 525, 'compare_between_selections': False, 'fdr_alpha': 0.05}"
+5,2026-08-28T16:20:12.297944+00:00,save_selection,Saved selection Selection 2,Selection 2,directional,"{'n_cells': 1053, 'lasso_type': 'brush'}"
+6,2026-08-28T16:20:13.294999+00:00,clear_results,Cleared visible results,,directional,{}
+7,2026-08-28T16:20:13.941862+00:00,compute_directional,Computed directional results for Selection 2,Selection 2,directional,"{'result_count': 438, 'compare_between_selections': False, 'fdr_alpha': 0.05}"
+8,2026-08-28T16:20:17.403273+00:00,clear_results,Cleared visible results,,directional,{}
+9,2026-08-28T16:20:18.960029+00:00,remove_selection,Removed selection Selection 2,Selection 2,directional,{'n_cells': 1053}
+10,2026-08-28T16:20:27.531363+00:00,save_selection,Saved selection Selection 2,Selection 2,directional,"{'n_cells': 996, 'lasso_type': 'brush'}"
+11,2026-08-28T16:20:30.037525+00:00,clear_results,Cleared visible results,,directional,{}
+12,2026-08-28T16:20:30.533178+00:00,compute_directional,Computed directional results for Selection 2,Selection 2,directional,"{'result_count': 432, 'compare_between_selections': False, 'fdr_alpha': 0.05}"
+13,2026-08-28T16:20:39.852031+00:00,change_brush_size,Changed brush size to 48,,directional,{'brush_size': 48}
+14,2026-08-28T16:20:53.808914+00:00,save_selection,Saved selection Selection 3,Selection 3,directional,"{'n_cells': 483, 'lasso_type': 'brush'}"
+15,2026-08-28T16:20:54.883420+00:00,clear_results,Cleared visible results,,directional,{}
+16,2026-08-28T16:20:55.271920+00:00,compute_directional,Computed directional results for Selection 3,Selection 3,directional,"{'result_count': 430, 'compare_between_selections': False, 'fdr_alpha': 0.05}"
+17,2026-08-28T16:21:08.173164+00:00,focus_selection,Focused selection Selection 1,Selection 1,directional,{'n_cells': 625}
+18,2026-08-28T16:21:12.142294+00:00,focus_selection,Focused selection Selection 2,Selection 2,directional,{'n_cells': 996}
+19,2026-08-28T16:21:13.244621+00:00,focus_selection,Focused selection Selection 3,Selection 3,directional,{'n_cells': 483}
+20,2026-08-28T16:21:19.223010+00:00,select_gene,Selected gene WBGene00007883,Selection 3,directional,{'gene': 'WBGene00007883'}
+21,2026-08-28T16:21:21.273562+00:00,select_gene,Selected gene WBGene00016114,Selection 3,directional,{'gene': 'WBGene00016114'}
+22,2026-08-28T16:21:22.754303+00:00,select_gene,Selected gene WBGene00003890,Selection 3,directional,{'gene': 'WBGene00003890'}
+23,2026-08-28T16:21:29.335713+00:00,export_session,Exported session to outputs/trajectory_task_dataset_v1_participant/paga_scsketch_comparison_baseline/scsketch_on_paga_umap.scsketch.json,,directional,{'path': 'outputs/trajectory_task_dataset_v1_participant/paga_scsketch_comparison_baseline/scsketch_on_paga_umap.scsketch.json'}

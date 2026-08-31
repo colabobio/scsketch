@@ -1,0 +1,26 @@
+leiden,n_cells,median_embryo_time,min_embryo_time,max_embryo_time,top_cell.type,top_lineage,top_time.point,top_embryo.time.bin,top_batch
+1,497,180.0,160,700,nan,nan,mixed,170-210,Murray_r17
+2,151,220.0,170,450,Neuroblast_ASE_ASJ_AUA,ABalpppppp/ABpraaappp,400_minutes,210-270,Waterston_400_minutes
+4,359,245.0,170,700,nan,nan,400_minutes,210-270,Waterston_400_minutes
+3,276,260.0,170,490,nan,nan,400_minutes,210-270,Waterston_400_minutes
+8,117,260.0,195,640,Neuroblast_AFD_RMD,ABalpppapa/ABpraaaapa,400_minutes,210-270,Waterston_400_minutes
+11,178,265.0,170,350,ADL_parent,ABalppppaa/ABpraaapaa,300_minutes,270-330,Waterston_300_minutes
+6,266,280.0,160,775,nan,nan,mixed,210-270,Murray_r17
+7,172,280.0,160,390,Neuroblast_ASG_AWA,ABpxaapapa,400_minutes,270-330,Waterston_400_minutes
+5,172,340.0,270,585,ASK_parent,ABalpppappp/ABpraaaappp,400_minutes,330-390,Waterston_400_minutes
+10,362,360.0,275,585,ASJ,ABalpppppppa/ABpraaappppa,400_minutes,330-390,Waterston_400_minutes
+15,279,370.0,200,750,ASI_parent,ABpxaapappp,400_minutes,330-390,Waterston_400_minutes
+12,247,385.0,300,520,ADL,ABalppppaad/ABpraaapaad,400_minutes,330-390,Waterston_400_minutes
+9,322,385.0,260,640,ASE,ABalppppppaa/ABpraaapppaa,400_minutes,330-390,Waterston_400_minutes
+19,342,410.0,300,725,AWA,ABpxaapapaa,500_minutes,390-450,Waterston_500_minutes_batch_1
+14,306,420.0,285,700,ADF,ABalpppppaa/ABpraaappaa,500_minutes,390-450,Waterston_500_minutes_batch_1
+13,346,440.0,300,750,ASH,ABpxpaappaa,500_minutes,330-390,Waterston_400_minutes
+17,201,450.0,370,700,AWB,ABalpppppap/ABpraaappap,500_minutes,450-510,Waterston_500_minutes_batch_1
+18,328,450.0,260,750,AWC,ABpxpaaaaap,500_minutes,390-450,Waterston_400_minutes
+21,204,510.0,375,700,ASK,ABalpppapppa/ABpraaaapppa,500_minutes,450-510,Waterston_500_minutes_batch_2
+0,321,510.0,260,780,AFD,ABalpppapav/ABpraaaapav,500_minutes,510-580,Waterston_400_minutes
+23,145,620.0,450,670,ASG,ABpxaapapap,500_minutes,580-650,Waterston_500_minutes_batch_2
+16,110,620.0,490,670,ASI,ABpxaapapppa,500_minutes,580-650,Waterston_500_minutes_batch_2
+24,156,620.0,405,760,ASJ,ABalpppppppa/ABpraaappppa,500_minutes,> 650,Waterston_500_minutes_batch_2
+20,251,640.0,450,780,ADL,ABalppppaad/ABpraaapaad,500_minutes,> 650,Waterston_500_minutes_batch_2
+22,80,700.0,490,755,ASER,ABalppppppaa/ABpraaapppaa,500_minutes,> 650,Waterston_500_minutes_batch_2
