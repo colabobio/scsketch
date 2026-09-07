@@ -11,7 +11,7 @@ No business logic lives here — only widget instantiation and layout wiring.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import ipywidgets as ipyw
 from IPython.display import HTML, display
@@ -91,6 +91,8 @@ class UIControls:
     session_status: ipyw.HTML
 
     # ── Result display containers ────────────────────────────────────────────
+    multi_view_toggle: ipyw.ToggleButtons
+    multi_view_container: VBox
     pathway_table_container: VBox
     reactome_diagram_container: VBox
 
@@ -107,6 +109,7 @@ def build_controls(
     color_by_default: Optional[str],
     max_genes: int,
     df_columns: List[str],
+    extra_views: Optional[Dict[str, Scatter]] = None,
 ) -> UIControls:
     """Create and return all UI controls for ScSketch.
 
@@ -124,6 +127,9 @@ def build_controls(
         How many genes were added to the DataFrame (0 = none).
     df_columns:
         Column names of the working DataFrame (for QC options in dropdown).
+    extra_views:
+        Optional mapping of display labels to additional :class:`jscatter.Scatter`
+        instances shown in the right detail panel when multi-view mode is enabled.
 
     Returns
     -------
@@ -313,6 +319,37 @@ def build_controls(
     )
 
     # ── Result display containers ────────────────────────────────────────────
+    extra_views = extra_views or {}
+    has_extra_views = len(extra_views) > 0
+    multi_view_toggle = ipyw.ToggleButtons(
+        options=[("OFF", False), ("ON", True)],
+        value=has_extra_views,
+        description="Multi-view",
+        disabled=not has_extra_views,
+        layout=Layout(width="auto", display="flex" if has_extra_views else "none"),
+        style={"description_width": "80px"},
+    )
+    extra_view_children: list[ipyw.Widget] = []
+    for label, view in extra_views.items():
+        extra_view_children.extend(
+            [
+                ipyw.HTML(f"<b>{label}</b>"),
+                view.show(),
+            ]
+        )
+    multi_view_container = VBox(
+        extra_view_children,
+        layout=Layout(
+            display="flex" if has_extra_views else "none",
+            flex_direction="column",
+            height="100%",
+            min_height="0px",
+            width="100%",
+            min_width="0px",
+            overflow="auto",
+            grid_gap="8px",
+        ),
+    )
     pathway_table_container = VBox(
         [],
         layout=Layout(
@@ -385,8 +422,13 @@ def build_controls(
         [
             VBox([sidebar], layout=Layout(overflow_y="auto", height="100%", min_width="0px")),
             VBox(
-                [pathway_table_container],
-                layout=Layout(overflow_y="auto", height="100%", min_width="0px"),
+                [multi_view_toggle, multi_view_container, pathway_table_container],
+                layout=Layout(
+                    overflow_y="auto",
+                    height="100%",
+                    min_width="0px",
+                    grid_gap="8px",
+                ),
             ),
         ],
         layout=Layout(
@@ -451,6 +493,8 @@ def build_controls(
         session_save=session_save,
         session_upload=session_upload,
         session_status=session_status,
+        multi_view_toggle=multi_view_toggle,
+        multi_view_container=multi_view_container,
         pathway_table_container=pathway_table_container,
         reactome_diagram_container=reactome_diagram_container,
         plot_wrapper=plot_wrapper,

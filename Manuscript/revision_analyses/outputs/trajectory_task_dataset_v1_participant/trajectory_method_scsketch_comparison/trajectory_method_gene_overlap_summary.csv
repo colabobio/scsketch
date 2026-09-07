@@ -1,0 +1,49 @@
+selection,method,primary_method,top_n,scsketch_genes,method_genes,overlap,overlap_fraction,jaccard,scsketch_rank_metric,method_rank_metric,path_progress_pseudotime_spearman_r
+Selection 1,PAGA/DPT,True,25,25,25,17,0.68,0.5151515151515151,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9740777371856735
+Selection 1,PAGA/DPT,True,50,50,50,30,0.6,0.42857142857142855,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9740777371856735
+Selection 1,PAGA/DPT,True,100,100,100,56,0.56,0.3888888888888889,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9740777371856735
+Selection 1,PAGA/DPT,True,200,200,200,103,0.515,0.3468013468013468,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9740777371856735
+Selection 1,Slingshot,True,25,25,25,16,0.64,0.47058823529411764,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9396640991208559
+Selection 1,Slingshot,True,50,50,50,28,0.56,0.3888888888888889,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9396640991208559
+Selection 1,Slingshot,True,100,100,100,50,0.5,0.3333333333333333,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9396640991208559
+Selection 1,Slingshot,True,200,200,200,95,0.475,0.3114754098360656,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9396640991208559
+Selection 1,Monocle3 global,True,25,25,25,12,0.48,0.3157894736842105,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9669037130761381
+Selection 1,Monocle3 global,True,50,50,50,24,0.48,0.3157894736842105,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9669037130761381
+Selection 1,Monocle3 global,True,100,100,100,43,0.43,0.27388535031847133,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9669037130761381
+Selection 1,Monocle3 global,True,200,200,200,76,0.38,0.2345679012345679,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9669037130761381
+Selection 1,Monocle3 partitioned,False,25,25,25,1,0.04,0.02040816326530612,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,-0.095439794744548
+Selection 1,Monocle3 partitioned,False,50,50,50,5,0.1,0.05263157894736842,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,-0.095439794744548
+Selection 1,Monocle3 partitioned,False,100,100,100,14,0.14,0.07526881720430108,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,-0.095439794744548
+Selection 1,Monocle3 partitioned,False,200,200,200,30,0.15,0.08108108108108109,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,-0.095439794744548
+Selection 2,PAGA/DPT,True,25,25,25,11,0.44,0.28205128205128205,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.8745469208633169
+Selection 2,PAGA/DPT,True,50,50,50,25,0.5,0.3333333333333333,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.8745469208633169
+Selection 2,PAGA/DPT,True,100,100,100,45,0.45,0.2903225806451613,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.8745469208633169
+Selection 2,PAGA/DPT,True,200,200,200,78,0.39,0.2422360248447205,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.8745469208633169
+Selection 2,Slingshot,True,25,25,25,9,0.36,0.21951219512195122,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.8533437122540379
+Selection 2,Slingshot,True,50,50,50,19,0.38,0.2345679012345679,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.8533437122540379
+Selection 2,Slingshot,True,100,100,100,36,0.36,0.21951219512195122,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.8533437122540379
+Selection 2,Slingshot,True,200,200,200,63,0.315,0.18694362017804153,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.8533437122540379
+Selection 2,Monocle3 global,True,25,25,25,8,0.32,0.19047619047619047,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.8553029528585965
+Selection 2,Monocle3 global,True,50,50,50,15,0.3,0.17647058823529413,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.8553029528585965
+Selection 2,Monocle3 global,True,100,100,100,32,0.32,0.19047619047619047,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.8553029528585965
+Selection 2,Monocle3 global,True,200,200,200,59,0.295,0.17302052785923755,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.8553029528585965
+Selection 2,Monocle3 partitioned,False,25,25,25,7,0.28,0.16279069767441862,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.048977735004910955
+Selection 2,Monocle3 partitioned,False,50,50,50,15,0.3,0.17647058823529413,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.048977735004910955
+Selection 2,Monocle3 partitioned,False,100,100,100,41,0.41,0.2578616352201258,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.048977735004910955
+Selection 2,Monocle3 partitioned,False,200,200,200,64,0.32,0.19047619047619047,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.048977735004910955
+Selection 3,PAGA/DPT,True,25,25,25,13,0.52,0.35135135135135137,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9888714085627963
+Selection 3,PAGA/DPT,True,50,50,50,23,0.46,0.2987012987012987,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9888714085627963
+Selection 3,PAGA/DPT,True,100,100,100,41,0.41,0.2578616352201258,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9888714085627963
+Selection 3,PAGA/DPT,True,200,200,200,85,0.425,0.2698412698412698,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9888714085627963
+Selection 3,Slingshot,True,25,25,25,13,0.52,0.35135135135135137,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9802842133754068
+Selection 3,Slingshot,True,50,50,50,23,0.46,0.2987012987012987,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9802842133754068
+Selection 3,Slingshot,True,100,100,100,43,0.43,0.27388535031847133,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9802842133754068
+Selection 3,Slingshot,True,200,200,200,83,0.415,0.2618296529968454,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.9802842133754068
+Selection 3,Monocle3 global,True,25,25,25,13,0.52,0.35135135135135137,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.928216288767586
+Selection 3,Monocle3 global,True,50,50,50,21,0.42,0.26582278481012656,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.928216288767586
+Selection 3,Monocle3 global,True,100,100,100,41,0.41,0.2578616352201258,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.928216288767586
+Selection 3,Monocle3 global,True,200,200,200,80,0.4,0.25,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,0.928216288767586
+Selection 3,Monocle3 partitioned,False,25,25,25,11,0.44,0.28205128205128205,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,-0.4300744530852295
+Selection 3,Monocle3 partitioned,False,50,50,50,20,0.4,0.25,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,-0.4300744530852295
+Selection 3,Monocle3 partitioned,False,100,100,100,42,0.42,0.26582278481012656,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,-0.4300744530852295
+Selection 3,Monocle3 partitioned,False,200,200,200,76,0.38,0.2345679012345679,abs_scsketch_correlation,q_value_then_abs_pseudotime_correlation,-0.4300744530852295

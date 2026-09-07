@@ -29,6 +29,9 @@ wheels/
 *.h5
 *.hdf5
 
+# Manuscript revision reproducibility dataset.
+!Manuscript/revision_analyses/data/trajectory_task_dataset_v1_participant.h5ad
+
 # IDEs
 .vscode/
 .cursor/

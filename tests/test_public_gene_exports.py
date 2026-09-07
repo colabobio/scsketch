@@ -3,6 +3,38 @@ from types import SimpleNamespace
 from scsketch.scsketch import ScSketch
 
 
+def test_get_genes_exports_discovery_score_with_cached_directional_results():
+    sketch = ScSketch.__new__(ScSketch)
+    sketch.selections = SimpleNamespace(
+        selections=[
+            SimpleNamespace(
+                name="Selection 1",
+                cached_results=[
+                    {"attribute": "GENE_LOW", "interval": (0.1, 0.01)},
+                    {"attribute": "GENE_HIGH", "interval": (0.8, 0.001)},
+                ],
+            )
+        ]
+    )
+
+    genes = sketch.get_genes("Selection 1")
+
+    assert genes.to_dict(orient="records") == [
+        {
+            "gene": "GENE_HIGH",
+            "correlation": 0.8,
+            "p-value": 0.001,
+            "discovery_score": 10,
+        },
+        {
+            "gene": "GENE_LOW",
+            "correlation": 0.1,
+            "p-value": 0.01,
+            "discovery_score": 0,
+        },
+    ]
+
+
 def test_get_diffexpr_genes_exports_cached_de_results():
     sketch = ScSketch.__new__(ScSketch)
     sketch.selections = SimpleNamespace(
@@ -32,12 +64,14 @@ def test_get_diffexpr_genes_exports_cached_de_results():
             "gene": "GENE_HIGH",
             "t-statistic": -5.5,
             "p-value": 0.001,
+            "discovery_score": 10,
             "selection": "Cluster 6 3dpi portion",
         },
         {
             "gene": "GENE_LOW",
             "t-statistic": 2.1,
             "p-value": 0.01,
+            "discovery_score": 0,
             "selection": "Cluster 6 3dpi portion",
         },
     ]

@@ -33,7 +33,7 @@ from matplotlib import colormaps
 from matplotlib.colors import to_hex
 from scipy.spatial import ConvexHull
 
-from jscatter import Line, okabe_ito
+from jscatter import Line, Scatter, okabe_ito
 
 from ._action_log import append_action as _append_action
 from ._action_log import build_action_log_table as _build_action_log_table
@@ -43,6 +43,7 @@ from ._data import build_embedding_df
 from ._diffexpr import DiffExprEngine
 from ._logging import LogLevel, configure_logging
 from ._results import clear_results, show_diffexpr_results, show_directional_results
+from ._scores import discovery_scores
 from ._scatter import ScScatter
 from ._session import (
     apply_playback_step as _apply_playback_step,
@@ -121,6 +122,9 @@ class ScSketch:
         fdr_alpha: float = 0.05,
         verbosity: LogLevel = "warning",
         diffexpr_disk_cache_dir: str | Path | None = None,
+        extra_views: dict[str, Scatter] | None = None,
+        gene_annotation_species: str | int = "human",
+        reactome_species: str | int = "human",
     ):
         """
         Initialize ScSketch widget.
@@ -136,6 +140,14 @@ class ScSketch:
             fdr_alpha: False discovery rate alpha threshold for directional analysis
             verbosity: Logging verbosity level
             diffexpr_disk_cache_dir: Optional path to persist DE global stats cache to disk.
+            extra_views: Optional mapping of labels to additional
+                :class:`jscatter.Scatter` instances shown in the right panel
+                when multi-view mode is enabled. Extra views are matched to the
+                main scSketch view by row index.
+            gene_annotation_species: Species filter passed to MyGene.info gene
+                annotation lookups. Defaults to human.
+            reactome_species: Species filter passed to Reactome pathway lookups.
+                Defaults to human.
         """
         self.logger = configure_logging(verbosity)
         self.adata = adata
@@ -145,6 +157,12 @@ class ScSketch:
         self.max_genes = max_genes
         self.fdr_alpha = fdr_alpha
         self.verbosity = verbosity
+        self.gene_annotation_species = gene_annotation_species
+        self.reactome_species = reactome_species
+        self.extra_views: dict[str, Scatter] = dict(extra_views or {})
+        self._multi_view_syncing = False
+        self._extra_view_size = max(240, min(int(height), 420))
+        self._gene_display_names = self._build_gene_display_names(adata)
 
         # -- Build DataFrame ------------------------------------------------
         result = build_embedding_df(
@@ -214,6 +232,7 @@ class ScSketch:
             tooltip_properties=[c for c in self.df.columns if c in self.meta_cols_present],
         )
         self.scatter.widget.color_selected = "#00dadb"
+        self._configure_extra_views()
 
         # -- Build UI ------------------------------------------------------
         self._ctrl: UIControls = build_controls(
@@ -223,11 +242,14 @@ class ScSketch:
             color_by_default=self.color_by_default,
             max_genes=self.max_genes,
             df_columns=list(self.df.columns),
+            extra_views=self.extra_views,
         )
         if self.scatter.widget.lasso_type == "freeform":
             self.analysis_mode = "differential"
 
         self._setup_handlers()
+        self._sync_extra_view_color(self.color_by_default)
+        self._apply_multi_view_visibility()
 
     # -- Logging shortcut --------------------------------------------------
 
@@ -292,7 +314,12 @@ class ScSketch:
             log=self._log,
             on_pathway_selected=self._handle_pathway_selected,
             initial_gene=initial_gene,
+            show_gene_details=self._show_gene_details_in_right_panel,
+            gene_display_name=self._display_gene_name,
+            gene_annotation_species=self.gene_annotation_species,
+            reactome_species=self.reactome_species,
         )
+        self._apply_multi_view_visibility()
 
     def _show_diffexpr_results(
         self,
@@ -316,7 +343,45 @@ class ScSketch:
             on_gene_selected=self._handle_gene_selected,
             log=self._log,
             initial_gene=initial_gene,
+            show_gene_details=self._show_gene_details_in_right_panel,
+            gene_display_name=self._display_gene_name,
+            gene_annotation_species=self.gene_annotation_species,
         )
+        self._apply_multi_view_visibility()
+
+    @staticmethod
+    def _build_gene_display_names(adata: AnnData) -> dict[str, str]:
+        columns = (
+            "gene_short_name",
+            "gene_symbols",
+            "gene_symbol",
+            "gene_name",
+            "gene_names",
+            "symbol",
+        )
+        mapping: dict[str, str] = {}
+
+        def add_var_labels(var_names, var) -> None:
+            for column in columns:
+                if column not in var.columns:
+                    continue
+                labels = var[column].astype(str)
+                if not labels.str.strip().replace({"nan": ""}).any():
+                    continue
+                for gene_id, label in zip(var_names, labels):
+                    label = str(label).strip()
+                    if label and label.lower() != "nan":
+                        mapping.setdefault(str(gene_id), label)
+                return
+
+        add_var_labels(adata.var_names, adata.var)
+        raw = getattr(adata, "raw", None)
+        if raw is not None and getattr(raw, "var", None) is not None:
+            add_var_labels(raw.var_names, raw.var)
+        return mapping
+
+    def _display_gene_name(self, gene: str) -> str:
+        return self._gene_display_names.get(str(gene), str(gene))
 
     def _clear_results_display(self, message: str | None = None):
         ctrl = self._ctrl
@@ -333,7 +398,7 @@ class ScSketch:
         cmap = colormaps["viridis"]
         return [to_hex(cmap(t)) for t in np.linspace(0.0, 1.0, steps)]
 
-    def _show_gene_expression_caption(self, gene: str):
+    def _show_gene_expression_caption(self, gene: str, display_gene: str | None = None):
         """Show the gene-expression color caption beneath the scatterplot."""
         colors = self._gene_expression_color_map(7)
         denom = max(1, len(colors) - 1)
@@ -341,7 +406,7 @@ class ScSketch:
             f"{color} {int(round(i * 100 / denom))}%"
             for i, color in enumerate(colors)
         )
-        safe_gene = escape(gene)
+        safe_gene = escape(display_gene or gene)
         self._ctrl.gene_expression_caption.value = f"""
 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;
             margin:4px 0 2px 58px;font:12px sans-serif;color:#333;">
@@ -363,6 +428,7 @@ class ScSketch:
         """Recolor the full embedding by expression of the selected gene."""
         if not gene:
             return
+        display_gene = self._display_gene_name(gene)
 
         if gene in self.df.columns:
             expr = pd.to_numeric(self.df[gene], errors="coerce").to_numpy(dtype=float)
@@ -389,12 +455,15 @@ class ScSketch:
             by=expr,
             map=self._gene_expression_color_map(),
             norm=(vmin, vmax),
-            labeling={"minValue": "Low", "maxValue": "High", "variable": gene},
+            labeling={"minValue": "Low", "maxValue": "High", "variable": display_gene},
         )
-        self._show_gene_expression_caption(gene)
+        self._color_extra_views_by_gene_expression(
+            gene, display_gene, expr, vmin, vmax
+        )
+        self._show_gene_expression_caption(gene, display_gene)
         self._refresh_scatter_non_spatial_points()
         self._log(
-            f"[color] recolored embedding for gene {gene!r} "
+            f"[color] recolored embedding for gene {gene!r} ({display_gene!r}) "
             f"range=[{vmin:.4g}, {vmax:.4g}]"
         )
 
@@ -463,6 +532,16 @@ class ScSketch:
                 self._lasso_brush_size_change_handler,
                 names=["lasso_brush_size"],
             )
+        if self.extra_views:
+            scatter.widget.observe(
+                self._main_selection_multi_view_handler,
+                names=["selection"],
+            )
+            for view in self.extra_views.values():
+                view.widget.observe(
+                    self._extra_view_selection_handler,
+                    names=["selection"],
+                )
 
         ctrl = self._ctrl
         ctrl.selection_add.on_click(self._selection_add_handler)
@@ -481,7 +560,152 @@ class ScSketch:
         )
         ctrl.session_save.on_click(self._session_save_handler)
         ctrl.session_upload.observe(self._session_upload_handler, names=["value"])
+        ctrl.multi_view_toggle.observe(self._multi_view_toggle_handler, names=["value"])
         self._refresh_history_options()
+
+    def _show_gene_details_in_right_panel(self) -> bool:
+        ctrl = getattr(self, "_ctrl", None)
+        if ctrl is None or not self.extra_views:
+            return True
+        return not bool(ctrl.multi_view_toggle.value)
+
+    def _apply_multi_view_visibility(self) -> None:
+        ctrl = getattr(self, "_ctrl", None)
+        if ctrl is None or not self.extra_views:
+            return
+
+        if bool(ctrl.multi_view_toggle.value):
+            ctrl.multi_view_container.layout.display = "flex"
+            ctrl.pathway_table_container.layout.display = "none"
+            ctrl.reactome_diagram_container.layout.display = "none"
+        else:
+            ctrl.multi_view_container.layout.display = "none"
+            if ctrl.pathway_table_container.children:
+                ctrl.pathway_table_container.layout.display = (
+                    "block" if self.analysis_mode == "differential" else "flex"
+                )
+
+    def _multi_view_toggle_handler(self, change):
+        enabled = bool(change["new"])
+        self._apply_multi_view_visibility()
+        self._record_action(
+            "toggle_multi_view",
+            f"Multi-view set to {enabled}",
+            payload={"multi_view": enabled},
+        )
+
+    def _main_selection_multi_view_handler(self, change):
+        if self._multi_view_syncing:
+            return
+        self._multi_view_syncing = True
+        try:
+            selection = self._clean_multi_view_selection(change["new"])
+            if not selection and self.active_selection is not None:
+                selection = self._clean_multi_view_selection(
+                    self.active_selection.points
+                )
+            for view in self.extra_views.values():
+                view.selection(selection)
+        finally:
+            self._multi_view_syncing = False
+
+    def _extra_view_selection_handler(self, change):
+        if self._multi_view_syncing:
+            return
+        self._multi_view_syncing = True
+        try:
+            self.scatter.selection(self._clean_multi_view_selection(change["new"]))
+        finally:
+            self._multi_view_syncing = False
+
+    def _current_multi_view_selection(self) -> list[int]:
+        if self.scatter is not None:
+            selection = self._clean_multi_view_selection(self.scatter.selection())
+            if selection:
+                return selection
+        if self.active_selection is not None:
+            return self._clean_multi_view_selection(self.active_selection.points)
+        return []
+
+    def _sync_extra_views_to_active_selection(self, *, force: bool = False) -> None:
+        if not self.extra_views:
+            return
+        points = self._current_multi_view_selection()
+        self._multi_view_syncing = True
+        try:
+            for view in self.extra_views.values():
+                if force and points:
+                    view.selection([])
+                view.selection(points)
+        finally:
+            self._multi_view_syncing = False
+
+    @staticmethod
+    def _clean_multi_view_selection(value) -> list[int]:
+        if value is None:
+            return []
+        return np.asarray(value, dtype=int).tolist()
+
+    def _sync_extra_view_color(self, color_by: str | None) -> None:
+        if not color_by:
+            return
+        color_map = self.categorical_color_maps.get(color_by)
+        for view in self.extra_views.values():
+            data = getattr(view, "_data", None)
+            if data is None or color_by not in data.columns:
+                continue
+            if color_map is not None:
+                view.color(by=color_by, map=color_map)
+            else:
+                view.color(by=color_by, map="magma")
+            self._refresh_extra_view_non_spatial_points(view)
+
+    def _color_extra_views_by_gene_expression(
+        self,
+        gene: str,
+        display_gene: str,
+        expr: np.ndarray,
+        vmin: float,
+        vmax: float,
+    ) -> None:
+        if not self.extra_views:
+            return
+        for label, view in self.extra_views.items():
+            data = getattr(view, "_data", None)
+            if data is not None and len(data) != len(expr):
+                self._log(
+                    f"[multi-view] skipped gene coloring for {label!r}: "
+                    f"expected {len(expr)} rows, found {len(data)}"
+                )
+                continue
+            view.color(
+                by=expr,
+                map=self._gene_expression_color_map(),
+                norm=(vmin, vmax),
+                labeling={
+                    "minValue": "Low",
+                    "maxValue": "High",
+                    "variable": display_gene,
+                },
+            )
+            self._refresh_extra_view_non_spatial_points(view)
+        self._sync_extra_views_to_active_selection(force=True)
+
+    def _configure_extra_views(self) -> None:
+        for label, view in self.extra_views.items():
+            try:
+                view.width(self._extra_view_size)
+                view.height(self._extra_view_size)
+            except Exception:
+                self.logger.exception("Failed to size extra view %r", label)
+
+    def _refresh_extra_view_non_spatial_points(self, view: Scatter) -> None:
+        try:
+            view.widget.prevent_filter_reset = True
+            view.widget.non_spatial_points_update = True
+            view.widget.points = view.get_point_list()
+        except Exception:
+            self.logger.exception("Failed to refresh extra-view point encodings")
 
     def _lasso_selection_polygon_change_handler(self, change):
         scatter = self.scatter
@@ -574,6 +798,7 @@ class ScSketch:
             self.scatter.color(by=new, map=self.categorical_color_maps[new])
         else:
             self.scatter.color(by=new, map="magma")
+        self._sync_extra_view_color(new)
         self._hide_gene_expression_caption()
         self._refresh_scatter_non_spatial_points()
         self._record_action(
@@ -705,6 +930,7 @@ class ScSketch:
             if change["new"]:
                 scatter.zoom(to=selection.points, animation=500, padding=2)
                 self.active_selection = selection
+                self._sync_extra_views_to_active_selection()
                 self._record_action(
                     "focus_selection",
                     f"Focused selection {selection.name}",
@@ -749,6 +975,7 @@ class ScSketch:
                 self.active_selection = (
                     self.selections.selections[-1] if self.selections.selections else None
                 )
+                self._sync_extra_views_to_active_selection()
                 if self.analysis_mode == "differential":
                     if (
                         self.active_selection is None
@@ -938,6 +1165,7 @@ class ScSketch:
 
             ctrl.compute_predicates.disabled = False
             self.scatter.selection([])
+            self._sync_extra_views_to_active_selection()
             self._update_annotations()
 
             if len(self.selections.selections) > 1:
@@ -1172,8 +1400,8 @@ class ScSketch:
         Returns
         -------
         DataFrame with columns ``gene``, ``correlation``, ``p-value``,
-        sorted descending by correlation.  Empty DataFrame if the selection
-        is not found or has no cached results.
+        and ``discovery_score``, sorted descending by correlation. Empty
+        DataFrame if the selection is not found or has no cached results.
         """
         for sel in self.selections.selections:
             if sel.name == sel_name and sel.cached_results is not None:
@@ -1185,7 +1413,11 @@ class ScSketch:
                     }
                     for entry in sel.cached_results
                 ]
-                return pd.DataFrame(data).sort_values(by="correlation", ascending=False)
+                df = pd.DataFrame(data)
+                if df.empty:
+                    return df
+                df["discovery_score"] = discovery_scores(df["p-value"])
+                return df.sort_values(by="correlation", ascending=False)
         return pd.DataFrame()
 
     def get_diffexpr_genes(self, sel_name: str = "Selection 1") -> pd.DataFrame:
@@ -1198,9 +1430,10 @@ class ScSketch:
 
         Returns
         -------
-        DataFrame with columns ``gene``, ``t-statistic``, ``p-value``, and
-        ``selection``, sorted descending by absolute t-statistic. Empty
-        DataFrame if the selection is not found or has no cached DE results.
+        DataFrame with columns ``gene``, ``t-statistic``, ``p-value``,
+        ``discovery_score``, and ``selection``, sorted descending by absolute
+        t-statistic. Empty DataFrame if the selection is not found or has no
+        cached DE results.
         """
         for sel in self.selections.selections:
             if sel.name == sel_name and sel.cached_diffexpr is not None:
@@ -1216,6 +1449,7 @@ class ScSketch:
                 df = pd.DataFrame(data)
                 if df.empty:
                     return df
+                df["discovery_score"] = discovery_scores(df["p-value"])
                 df["_abs_t"] = df["t-statistic"].abs()
                 return (
                     df.sort_values(by="_abs_t", ascending=False)

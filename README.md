@@ -131,22 +131,42 @@ Practical tips:
 - Sketch along one clear gradient at a time (a selection closer to a straight line works best).
 - If the trajectory bends, split it into multiple shorter selections and compare results.
 
+**Optional multi-view panel**
+
+You can pass additional prebuilt `jupyter-scatter` views to compare the same selected cells across embeddings such as PCA, tSNE, or PHATE. Extra views are matched to scSketch by row index, so build them from the same cells in the same order as `adata`.
+
+```python
+import pandas as pd
+from jscatter import Scatter
+
+pca_df = pd.DataFrame(
+    {
+        "PC1": adata.obsm["X_pca"][:, 0],
+        "PC2": adata.obsm["X_pca"][:, 1],
+        "louvain": adata.obs["louvain"].astype(str).to_numpy(),
+    },
+    index=adata.obs_names,
+)
+
+pca = Scatter(data=pca_df, x="PC1", y="PC2", color_by="louvain", axes=True)
+
+sketch = ScSketch(
+    adata=adata,
+    metadata_cols=["louvain"],
+    color_by_default="louvain",
+    extra_views={"PCA": pca},
+)
+sketch.show()
+```
+
+When extra views are provided, scSketch shows a **Multi-view** OFF/ON toggle in the right panel. ON keeps the extra view visible in a compact square panel; OFF restores the usual gene detail panel for expression-vs-projection, DE violin, and pathway views. Result-table gene clicks recolor both the main scSketch embedding and the extra views by the same expression vector, which helps compare whether a directional expression pattern is preserved across embeddings.
+
 
 **Gene IDs vs gene symbols**
 
-scSketch currently uses `adata.var_names` as the gene identifier for display/search. If your `AnnData` uses Ensembl IDs (e.g. `ENSG...`) in `var_names`, you will see Ensembl IDs in the UI.
+scSketch keeps `adata.var_names` as the gene identifier used for expression lookup, session replay, and exported `p-value` results. In result tables, it automatically displays a more readable label when `adata.var` or `adata.raw.var` contains one of these columns: `gene_short_name`, `gene_symbols`, `gene_symbol`, `gene_name`, `gene_names`, or `symbol`.
 
-If you have gene symbols in a column like `adata.var["gene_symbols"]`, you can create a visualization-only copy that displays symbols:
-
-```python
-adata_view = adata.copy()
-adata_view.var["ensembl_id"] = adata_view.var_names
-adata_view.var_names = adata_view.var["gene_symbols"].astype(str)
-adata_view.var_names_make_unique()
-
-sketch = ScSketch(adata=adata_view, metadata_cols=["louvain"], color_by_default="louvain")
-sketch.show()
-```
+For example, a dataset with `WBGene...` IDs in `adata.var_names` and readable names in `adata.var["gene_short_name"]` will show the readable names in the UI while still using the original `WBGene...` IDs internally.
 
 ### Using scSketch with uv / uvx
 

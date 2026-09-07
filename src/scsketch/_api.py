@@ -19,17 +19,34 @@ logger = logging.getLogger(__name__)
 _REACTOME_BASE = "https://reactome.org/ContentService"
 _MYGENE_BASE = "https://mygene.info/v3"
 _GENE_DESCRIPTION_FIELDS = "symbol,name,summary,entrezgene,ensembl.gene,taxid"
+_REACTOME_SPECIES_ALIASES = {
+    "human": "9606",
+    "homo sapiens": "9606",
+}
+
+
+def _normalize_reactome_species(species: str | int | None = "human") -> str:
+    """Return the Reactome species query value, preserving explicit overrides."""
+    if species is None:
+        return _REACTOME_SPECIES_ALIASES["human"]
+    text = str(species).strip()
+    if not text:
+        return _REACTOME_SPECIES_ALIASES["human"]
+    return _REACTOME_SPECIES_ALIASES.get(text.lower(), text)
 
 
 @lru_cache(maxsize=512)
-def fetch_gene_description(gene: str, species: str = "human") -> Optional[dict]:
+def fetch_gene_description(
+    gene: str,
+    species: str | int = "human",
+) -> Optional[dict]:
     """Fetch a short gene annotation from MyGene.info.
 
     Parameters
     ----------
     gene:
-        Gene symbol or Ensembl gene ID (e.g. ``"TP53"`` or
-        ``"ENSG00000141510"``).
+        Gene symbol, Ensembl gene ID, or WormBase gene ID (e.g. ``"TP53"``,
+        ``"ENSG00000141510"``, or ``"WBGene00010957"``).
     species:
         Species filter passed to MyGene.info query lookups. Defaults to human to
         match the existing Reactome integration.
@@ -44,7 +61,8 @@ def fetch_gene_description(gene: str, species: str = "human") -> Optional[dict]:
 
     params = {"fields": _GENE_DESCRIPTION_FIELDS}
     try:
-        if gene.upper().startswith("ENS"):
+        gene_upper = gene.upper()
+        if gene_upper.startswith("ENS"):
             response = requests.get(
                 f"{_MYGENE_BASE}/gene/{gene}",
                 params=params,
@@ -55,10 +73,15 @@ def fetch_gene_description(gene: str, species: str = "human") -> Optional[dict]:
             response.raise_for_status()
             payload = response.json()
         else:
+            query = (
+                f"wormbase:{gene}"
+                if gene_upper.startswith("WBGENE")
+                else f"symbol:{gene}"
+            )
             response = requests.get(
                 f"{_MYGENE_BASE}/query",
                 params={
-                    "q": f"symbol:{gene}",
+                    "q": query,
                     "fields": _GENE_DESCRIPTION_FIELDS,
                     "species": species,
                     "size": 1,
@@ -81,21 +104,29 @@ def fetch_gene_description(gene: str, species: str = "human") -> Optional[dict]:
         return None
 
 
-def fetch_pathways(gene: str) -> list[dict]:
-    """Fetch Reactome pathways for a human gene symbol via UniProt mapping.
+def fetch_pathways(gene: str, species: str | int = "human") -> list[dict]:
+    """Fetch Reactome pathways for a gene symbol via UniProt mapping.
 
     Parameters
     ----------
     gene:
-        HGNC gene symbol (e.g. ``"TP53"``).
+        Gene symbol (e.g. ``"TP53"``).
+    species:
+        Reactome species filter. Defaults to human. Numeric NCBI taxon IDs
+        are passed through, and ``"human"`` / ``"Homo sapiens"`` are mapped
+        to ``9606`` for backward-compatible behavior.
 
     Returns
     -------
     List of ``{"name": str, "stId": str}`` dicts, empty on error.
     """
-    url = f"{_REACTOME_BASE}/data/mapping/UniProt/{gene}/pathways?species=9606"
+    url = f"{_REACTOME_BASE}/data/mapping/UniProt/{gene}/pathways"
     try:
-        response = requests.get(url, timeout=15)
+        response = requests.get(
+            url,
+            params={"species": _normalize_reactome_species(species)},
+            timeout=15,
+        )
         response.raise_for_status()
         pathways = response.json()
         return [
@@ -167,13 +198,18 @@ def fetch_pathway_participants(pathway_id: str) -> list[str]:
         return []
 
 
-def gene_symbols_to_uniprot(gene_symbols: list[str]) -> list[str]:
-    """Convert HGNC gene symbols to primary Swiss-Prot UniProt IDs via MyGene.info.
+def gene_symbols_to_uniprot(
+    gene_symbols: list[str],
+    species: str | int = "human",
+) -> list[str]:
+    """Convert gene symbols to primary Swiss-Prot UniProt IDs via MyGene.info.
 
     Parameters
     ----------
     gene_symbols:
         List of gene symbols (e.g. ``["TP53", "BRCA1"]``).
+    species:
+        Species filter passed to MyGene.info. Defaults to human.
 
     Returns
     -------
@@ -182,8 +218,15 @@ def gene_symbols_to_uniprot(gene_symbols: list[str]) -> list[str]:
     mapping: dict[str, str] = {}
     try:
         for gene in gene_symbols:
-            url = f"https://mygene.info/v3/query?q={gene}&fields=uniprot.Swiss-Prot&species=human"
-            response = requests.get(url, timeout=15)
+            response = requests.get(
+                f"{_MYGENE_BASE}/query",
+                params={
+                    "q": gene,
+                    "fields": "uniprot.Swiss-Prot",
+                    "species": species,
+                },
+                timeout=15,
+            )
             response.raise_for_status()
             hits = response.json().get("hits", [])
             for hit in hits:

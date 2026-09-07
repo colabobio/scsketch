@@ -19,6 +19,7 @@ from ipywidgets import HTML as _HTML
 from ipywidgets import Layout, VBox
 
 from ._api import fetch_gene_description, fetch_pathway_svg, fetch_pathways
+from ._scores import discovery_scores
 from .widgets import (
     CorrelationTable,
     GeneProjectionPlot,
@@ -87,6 +88,23 @@ def _format_gene_description(gene: str, description: Optional[dict]) -> str:
     )
 
 
+def _fetch_gene_description_for_display(
+    gene: str,
+    *,
+    species: str | int,
+    gene_display_name: Optional[Callable[[str], str]],
+) -> Optional[dict]:
+    """Fetch annotation by internal gene id, then by readable display name."""
+    description = fetch_gene_description(gene, species=species)
+    if description is not None or gene_display_name is None:
+        return description
+
+    display_gene = str(gene_display_name(gene)).strip()
+    if not display_gene or display_gene == gene:
+        return description
+    return fetch_gene_description(display_gene, species=species)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Directional analysis results
 # ─────────────────────────────────────────────────────────────────────────────
@@ -105,6 +123,10 @@ def show_directional_results(
     log: Callable,
     on_pathway_selected: Optional[Callable[[str], None]] = None,
     initial_gene: Optional[str] = None,
+    show_gene_details: Optional[Callable[[], bool]] = None,
+    gene_display_name: Optional[Callable[[str], str]] = None,
+    gene_annotation_species: str | int = "human",
+    reactome_species: str | int = "human",
 ) -> None:
     """Populate the sidebar with gene correlation results and wire pathway interactions.
 
@@ -131,6 +153,17 @@ def show_directional_results(
         Optional callback invoked before rendering a selected Reactome pathway.
     initial_gene:
         Optional gene to render immediately, used by session playback.
+    show_gene_details:
+        Optional callback returning whether the right-side gene detail panel
+        should be populated. Multi-view mode uses this to keep an extra scatter
+        view visible while still allowing gene clicks to recolor the embedding.
+    gene_display_name:
+        Optional callback for converting internal gene identifiers to readable
+        table labels.
+    gene_annotation_species:
+        Species filter passed to MyGene.info gene annotation lookups.
+    reactome_species:
+        Species filter passed to Reactome pathway lookups.
     on_results_cleared:
         Callback invoked when the user clicks *Clear Results*.
     log:
@@ -141,17 +174,27 @@ def show_directional_results(
         for entry in result:
             if "reject" in entry and not entry["reject"]:
                 continue
+            gene = str(entry["attribute"])
+            p_value = float(entry["interval"][1])
             all_results.append(
                 {
-                    "Gene": entry["attribute"],
+                    "Gene": gene_display_name(gene) if gene_display_name else gene,
+                    "_gene_id": gene,
                     "R": float(np.round(entry["interval"][0], 4)),
-                    "p": f"{entry['interval'][1]:.3e}",
+                    "_p_value": p_value,
                     "Selection": entry.get("direction", f"Selection {i + 1}"),
                 }
             )
 
-    results_df = pd.DataFrame(all_results).dropna(subset=["R", "p"])
-    results_df = results_df.sort_values(by="R", ascending=False).reset_index(drop=True)
+    results_df = pd.DataFrame(all_results)
+    if not results_df.empty:
+        results_df = results_df.dropna(subset=["R", "_p_value"])
+        results_df["Discovery Score"] = discovery_scores(results_df["_p_value"])
+        results_df = (
+            results_df.sort_values(by="R", ascending=False)
+            .drop(columns=["_p_value"])
+            .reset_index(drop=True)
+        )
 
     gene_table_widget = CorrelationTable(data=results_df.to_dict(orient="records"))
     pathway_table_widget = PathwayTable(data=[])
@@ -197,10 +240,19 @@ def show_directional_results(
             if on_gene_selected is not None:
                 on_gene_selected(gene)
 
-            description = fetch_gene_description(gene)
+            if show_gene_details is not None and not show_gene_details():
+                pathway_table_container.layout.display = "none"
+                reactome_diagram_container.layout.display = "none"
+                return
+
+            description = _fetch_gene_description_for_display(
+                gene,
+                species=gene_annotation_species,
+                gene_display_name=gene_display_name,
+            )
             gene_description.value = _format_gene_description(gene, description)
 
-            pathways = fetch_pathways(gene)
+            pathways = fetch_pathways(gene, species=reactome_species)
             pathway_table_widget.data = pathways
             pathway_table_container.layout.display = "flex"
             pathway_msg.value = (
@@ -334,6 +386,9 @@ def show_diffexpr_results(
     on_gene_selected: Optional[Callable[[str], None]],
     log: Callable,
     initial_gene: Optional[str] = None,
+    show_gene_details: Optional[Callable[[], bool]] = None,
+    gene_display_name: Optional[Callable[[str], str]] = None,
+    gene_annotation_species: str | int = "human",
 ) -> None:
     """Populate the sidebar with differential expression results and violin plots.
 
@@ -362,6 +417,15 @@ def show_diffexpr_results(
         Optional callback invoked before rendering gene-specific secondary views.
     initial_gene:
         Optional gene to render immediately, used by session playback.
+    show_gene_details:
+        Optional callback returning whether the right-side gene detail panel
+        should be populated. Multi-view mode uses this to keep an extra scatter
+        view visible while still allowing gene clicks to recolor the embedding.
+    gene_display_name:
+        Optional callback for converting internal gene identifiers to readable
+        table labels.
+    gene_annotation_species:
+        Species filter passed to MyGene.info gene annotation lookups.
     log:
         Debug logging callable.
     """
@@ -379,24 +443,28 @@ def show_diffexpr_results(
 
     rows = [
         {
-            "Gene": e["attribute"],
+            "Gene": gene_display_name(str(e["attribute"]))
+            if gene_display_name
+            else str(e["attribute"]),
+            "_gene_id": str(e["attribute"]),
             "T": float(np.round(float(e["interval"][0]), 4)),
-            "p": f"{float(e['interval'][1]):.3e}",
+            "_p_value": float(e["interval"][1]),
             "Selection": selection_label,
         }
         for e in diff_results
     ]
-    results_df = pd.DataFrame(rows).dropna(subset=["T", "p"])
+    results_df = pd.DataFrame(rows).dropna(subset=["T", "_p_value"])
+    results_df["Discovery Score"] = discovery_scores(results_df["_p_value"])
     results_df["_absT"] = results_df["T"].abs()
     results_df = (
         results_df.sort_values(by="_absT", ascending=False)
-        .drop(columns=["_absT"])
+        .drop(columns=["_absT", "_p_value"])
         .reset_index(drop=True)
     )
 
     gene_table_widget = CorrelationTable(
         data=results_df.to_dict(orient="records"),
-        columns=["Gene", "T", "p", "Selection"],
+        columns=["Gene", "T", "Discovery Score", "Selection"],
     )
 
     violin = GeneViolinPlot()
@@ -426,7 +494,16 @@ def show_diffexpr_results(
             if on_gene_selected is not None:
                 on_gene_selected(gene)
 
-            description = fetch_gene_description(gene)
+            if show_gene_details is not None and not show_gene_details():
+                pathway_table_container.layout.display = "none"
+                reactome_diagram_container.layout.display = "none"
+                return
+
+            description = _fetch_gene_description_for_display(
+                gene,
+                species=gene_annotation_species,
+                gene_display_name=gene_display_name,
+            )
             gene_description.value = _format_gene_description(gene, description)
 
             X, var_names, _ = de_source_fn()

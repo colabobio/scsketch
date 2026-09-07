@@ -1,0 +1,5 @@
+method,primary_method,n_cells,n_finite_pseudotime,spearman_vs_embryo_time,note
+PAGA/DPT,True,6188,6188,0.869491112927947,DPT root selected from earliest-median Leiden cluster.
+Slingshot,True,6188,6188,0.877292367876794,"PCA Slingshot, start cluster 2, 13 lineages."
+Monocle3 global,True,6188,6188,0.874848371503153,A single root was selected from early embryo-time cells; use_partition = FALSE forces one graph across partitions.
+Monocle3 partitioned,False,6188,6188,0.258872532433427,Roots were selected from early embryo-time cells per partition; global embryo-time correlation is diagnostic only.

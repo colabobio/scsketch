@@ -1,0 +1,2 @@
+"method","graph_mode","use_partitions","n_cells","n_finite_pseudotime","n_finite_pseudotime_and_embryo_time","spearman_vs_embryo_time","root_quantile","root_min_cells","root_pr_nodes","root_selection_note"
+"Monocle3","global",FALSE,6188,6188,6188,0.874848371503153,0.05,20,"Y_15","A single root was selected from early embryo-time cells; use_partition = FALSE forces one graph across partitions."

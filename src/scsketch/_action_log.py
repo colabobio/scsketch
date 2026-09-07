@@ -217,6 +217,17 @@ def _apply_global_action(sketch, entry: dict[str, Any]) -> str | None:
             )
         return f"Restored compare between selections to {value}."
 
+    if action_type == "toggle_multi_view":
+        value = bool(payload.get("multi_view"))
+        if ctrl is not None and hasattr(ctrl, "multi_view_toggle"):
+            _with_paused_log(
+                sketch,
+                lambda: setattr(ctrl.multi_view_toggle, "value", value),
+            )
+        if hasattr(sketch, "_apply_multi_view_visibility"):
+            sketch._apply_multi_view_visibility()
+        return f"Restored multi-view to {value}."
+
     if action_type == "change_diffexpr_threshold":
         value = payload.get("value")
         field = str(payload.get("field") or "")
