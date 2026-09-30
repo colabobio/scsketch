@@ -281,5 +281,9 @@ This means JS and CSS can be edited live during development (with `ANYWIDGET_HMR
 
 ## Layout notes
 
+- The UI is themed by `static/scsketch.css` (light chrome, dark plot). `_ui.build_controls()` injects it once per build; every rule is scoped to `.sc-root`, so nothing leaks into the surrounding notebook. Design tokens (colors, radii, fonts) are CSS variables on `.sc-root`, and fonts fall back to the system sans-serif when IBM Plex is not installed.
+- Layout structure: top bar (logo, session name, Save, Upload Session, History) → workspace (dark plot with the Color-by control | sidebar with SELECTIONS, GENE table and the compute button) → results dock (gene detail plot, pathway table, multi-view, Reactome diagram).
+- The Save/Upload icons are inline SVG masks in the CSS (`.sc-btn-save`, `.sc-btn-upload`), not Font Awesome.
+
 - The UI uses `GridBox` for the main layout and relies on `min_width="0px"` for grid children to prevent CSS grid “min-content” sizing from shrinking the scatter plot column.
 - The sidebar uses `grid_template_rows="min-content max-content 1fr min-content"` with a fixed overall panel height so the middle section can scroll while keeping the compute button visible.

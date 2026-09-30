@@ -1,0 +1,352 @@
+/* scSketch app theme — light chrome, dark plot.
+   Injected once by scsketch._ui.build_controls(). Everything is scoped to
+   .sc-root so it never leaks into the rest of the notebook. */
+
+.sc-root {
+  /* tokens (from the Figma design) */
+  --sc-font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --sc-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo,
+    Consolas, monospace;
+  --sc-surface: #ffffff;
+  --sc-surface-muted: #f3f3f1;
+  --sc-surface-disabled: #ecece9;
+  --sc-border: rgba(38, 40, 44, 0.1);
+  --sc-border-control: #e3e3df;
+  --sc-border-input: #d8d8d4;
+  --sc-text: #1d1f23;
+  --sc-text-muted: #606269;
+  --sc-plot-bg: #111111;
+  --sc-dark-control: #1e2024;
+  --sc-dark-border: #34373c;
+  --sc-dark-text: #ece9e3;
+  --sc-dark-text-muted: #a3a19c;
+  --sc-accent: #7fb2ff;
+  --sc-radius: 8px;
+  --sc-radius-lg: 14px;
+
+  font-family: var(--sc-font);
+  color: var(--sc-text);
+  background: var(--sc-surface);
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius);
+  overflow: hidden;
+  width: 100%;
+  box-sizing: border-box;
+}
+.sc-root * { box-sizing: border-box; }
+
+/* Make Jupyter widget labels/inputs inherit our font */
+.sc-root .widget-label,
+.sc-root .widget-inline-hbox .widget-label,
+.sc-root input,
+.sc-root select,
+.sc-root button,
+.sc-root .jupyter-widgets {
+  font-family: var(--sc-font);
+}
+
+/* ── Top bar ─────────────────────────────────────────────────────────── */
+.sc-topbar {
+  height: 60px;
+  padding: 0 24px;
+  gap: 24px;
+  align-items: center;
+  background: var(--sc-surface);
+  border-bottom: 1px solid var(--sc-border);
+}
+.sc-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+.sc-logo svg { width: 26px; height: 26px; flex: none; }
+.sc-logo span {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--sc-text);
+  line-height: 26px;
+}
+.sc-session {
+  align-items: center;
+  gap: 8px;
+  padding-left: 16px;
+  border-left: 1px solid rgba(96, 98, 105, 0.4);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sc-session-label {
+  font-family: var(--sc-font-mono);
+  font-size: 13px;
+  color: var(--sc-text-muted);
+  white-space: nowrap;
+}
+.sc-root .sc-session-name { flex: 1 1 120px; min-width: 60px; max-width: 436px; }
+.sc-root .sc-session-name input {
+  height: 31px;
+  padding: 6px 10px;
+  border: 1px solid var(--sc-border-input);
+  border-radius: 6px;
+  background: var(--sc-surface);
+  color: var(--sc-text-muted);
+  font-family: var(--sc-font-mono);
+  font-size: 13px;
+  box-shadow: none;
+}
+.sc-root .sc-session-name input:focus {
+  outline: 1px solid var(--sc-accent);
+  outline-offset: 0;
+}
+
+/* The upload widget appends " (n)" to its label; render our own label instead. */
+.sc-root button.sc-btn.sc-btn-upload { font-size: 0; }
+.sc-root button.sc-btn.sc-btn-upload::after {
+  content: "Upload Session";
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Light buttons: Save / Upload Session */
+.sc-root button.sc-btn {
+  height: 31px;
+  width: auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0 16px 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--sc-surface-muted);
+  border: 1px solid var(--sc-border-control);
+  border-radius: var(--sc-radius);
+  color: var(--sc-text);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  box-shadow: none;
+  white-space: nowrap;
+  flex: none;
+}
+.sc-root button.sc-btn:hover { background: var(--sc-surface-disabled); }
+.sc-root button.sc-btn i.fa { display: none; }
+.sc-root button.sc-btn::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  flex: none;
+  background-color: currentColor;
+  -webkit-mask: var(--sc-icon) center / contain no-repeat;
+  mask: var(--sc-icon) center / contain no-repeat;
+}
+.sc-root button.sc-btn-save {
+  --sc-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z'/%3E%3C/svg%3E");
+}
+.sc-root button.sc-btn-upload {
+  --sc-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 20h14v-2H5v2zm0-10h4v6h6v-6h4l-7-7-7 7z'/%3E%3C/svg%3E");
+}
+
+/* History dropdown (kept as a dropdown so jump-to-action still works) */
+.sc-history { flex: none; width: 230px; position: relative; }
+.sc-root .sc-history .widget-label {
+  position: absolute;
+  left: 34px;
+  top: 0;
+  z-index: 1;
+  width: auto !important;
+  padding: 0;
+  line-height: 31px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--sc-text);
+  pointer-events: none;
+}
+.sc-root .sc-history select {
+  height: 31px;
+  background-color: var(--sc-surface-muted);
+  border: 1px solid var(--sc-border-control);
+  border-radius: var(--sc-radius);
+  color: var(--sc-text);
+  font-size: 14px;
+  font-weight: 500;
+  padding-left: 88px;
+  box-shadow: none;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z' fill='%231d1f23'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 10px center;
+  background-size: 18px 18px;
+}
+.sc-root .sc-history select:disabled { opacity: 1; color: var(--sc-text-muted); }
+
+/* ── Workspace: plot + sidebar ───────────────────────────────────────── */
+.sc-workspace { align-items: stretch; }
+
+/* Dark plot panel */
+.sc-plot {
+  background: var(--sc-plot-bg);
+  color: var(--sc-dark-text);
+  padding: 16px 24px 16px;
+  gap: 12px;
+  min-width: 0;
+}
+.sc-colorby { align-items: center; gap: 20px; width: 236px; max-width: 100%; align-self: flex-start; }
+.sc-root .sc-colorby .widget-label {
+  color: var(--sc-dark-text-muted);
+  font-size: 13px;
+  width: auto;
+  min-width: 0;
+  padding: 0;
+}
+.sc-root .sc-colorby select {
+  height: 36px;
+  min-width: 140px;
+  padding: 0 12px;
+  background-color: var(--sc-dark-control);
+  border: 1px solid var(--sc-dark-border);
+  border-radius: var(--sc-radius);
+  color: var(--sc-dark-text);
+  font-size: 14px;
+  box-shadow: none;
+}
+.sc-plot .sc-caption { color: var(--sc-dark-text); }
+
+/* Lasso toolbar: jupyter-scatter's vertical button column, re-laid out as a
+   floating dark pill at the bottom-center of the plot (as in the design).
+   Selectors use :has() so no changes to jupyter-scatter are needed. */
+.sc-plot .widget-hbox:has(> .widget-vbox > div > .jupyter-scatter-button) {
+  position: relative;
+}
+.sc-plot .widget-hbox > .widget-vbox:has(> div > .jupyter-scatter-button) {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 5;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 4px;
+  width: auto !important;
+  height: auto !important;
+  padding: 5px;
+  background: rgba(17, 18, 20, 0.95);
+  border: 1px solid var(--sc-dark-border);
+  border-radius: var(--sc-radius-lg);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+.sc-plot .widget-hbox > .widget-vbox:has(> div > .jupyter-scatter-button) > div {
+  width: auto !important;
+  height: auto !important;
+  margin: 0;
+}
+.sc-plot .widget-hbox > .widget-vbox:has(> div > .jupyter-scatter-button) .jupyter-scatter-button,
+.sc-plot .widget-hbox > .widget-vbox:has(> div > .jupyter-scatter-button) .jupyter-scatter-choice-toggler,
+.sc-plot .widget-hbox > .widget-vbox:has(> div > .jupyter-scatter-button) .jupyter-scatter-slider-toggler {
+  width: 32px !important;
+  height: 32px !important;
+  margin: 0 !important;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.84);
+  box-shadow: none;
+}
+.sc-plot .widget-hbox > .widget-vbox:has(> div > .jupyter-scatter-button) .jupyter-scatter-button:hover,
+.sc-plot .widget-hbox > .widget-vbox:has(> div > .jupyter-scatter-button) .jupyter-scatter-choice-toggler:hover,
+.sc-plot .widget-hbox > .widget-vbox:has(> div > .jupyter-scatter-button) .jupyter-scatter-slider-toggler:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.sc-plot .widget-hbox > .widget-vbox:has(> div > .jupyter-scatter-button) .jupyter-scatter-button.mod-primary {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+.sc-plot .widget-hbox > .widget-vbox:has(> div > .jupyter-scatter-button) button svg,
+.sc-plot .widget-hbox > .widget-vbox:has(> div > .jupyter-scatter-button) button i {
+  display: block;
+  width: 20px !important;
+  height: 20px !important;
+  margin: 0 auto;
+  font-size: 16px;
+  line-height: 20px;
+}
+/* Open the lasso-type / brush-size popups above the toolbar, not over it. */
+.sc-plot dialog.jupyter-scatter-choice-dialog,
+.sc-plot dialog.jupyter-scatter-slider-dialog {
+  /* these are top-layer dialogs placed with inline top/left, so nudge upward */
+  margin-top: -56px !important;
+}
+.sc-plot .jupyter-scatter-divider {
+  width: 1px !important;
+  height: 28px !important;
+  margin: 0 4px !important;
+  background: var(--sc-dark-border) !important;
+  border: 0 !important;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────── */
+.sc-sidebar {
+  background: var(--sc-surface);
+  padding: 8px;
+  gap: 16px;
+  min-width: 0;
+  border-left: 1px solid var(--sc-border);
+}
+.sc-section-title {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--sc-text-muted);
+  margin: 0 0 6px;
+}
+.sc-divider { height: 1px; background: var(--sc-border); flex: none; }
+.sc-sidebar-genes { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+.sc-root .sc-compute .widget-inline-hbox,
+.sc-root .sc-compute .widget-text { width: 100%; min-width: 0; margin: 0; }
+.sc-root .sc-compute input { min-width: 0; }
+.sc-root .sc-sidebar .jupyter-scatter-button.full-width {
+  width: 100%;
+  margin: 0;
+}
+.sc-root .sc-sidebar .widget-text input,
+.sc-root .sc-sidebar .widget-dropdown select,
+.sc-root .sc-sidebar .widget-text input[type="number"] {
+  border: 1px solid var(--sc-border-input);
+  border-radius: 6px;
+  background: var(--sc-surface);
+  color: var(--sc-text);
+  box-shadow: none;
+}
+
+/* Compute button — matches the "Compute Directional Search" design.
+   Disabled = muted grey (as in the design); enabled = dark, high contrast. */
+.sc-root .sc-compute button.jupyter-scatter-button {
+  height: 48px;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: var(--sc-radius);
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: none;
+  background: var(--sc-text);
+  color: #ffffff;
+}
+.sc-root .sc-compute button.jupyter-scatter-button:disabled {
+  background: var(--sc-surface-disabled);
+  color: var(--sc-text-muted);
+}
+.sc-root .sc-compute button.jupyter-scatter-button:not(:disabled):hover {
+  background: #33363c;
+}
+
+/* ── Results dock ────────────────────────────────────────────────────── */
+.sc-dock {
+  background: var(--sc-surface);
+  border-top: 1px solid var(--sc-border);
+  padding: 16px 24px;
+  gap: 16px;
+  min-width: 0;
+}
+.sc-dock .sc-dock-row { gap: 16px; align-items: flex-start; min-width: 0; }

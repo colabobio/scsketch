@@ -409,11 +409,11 @@ class ScSketch:
         safe_gene = escape(display_gene or gene)
         self._ctrl.gene_expression_caption.value = f"""
 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;
-            margin:4px 0 2px 58px;font:12px sans-serif;color:#333;">
+            margin:0;font:12px system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#ece9e3;">
   <span><b>{safe_gene}</b> expression</span>
   <span>Low exp.</span>
-  <span style="display:inline-block;width:150px;height:18px;
-               border:1px solid #bbb;background:linear-gradient(to right,{stops});">
+  <span style="display:inline-block;width:150px;height:10px;
+               border:1px solid #34373c;border-radius:4px;background:linear-gradient(to right,{stops});">
   </span>
   <span>Max exp.</span>
 </div>
