@@ -11,6 +11,7 @@ No business logic lives here — only widget instantiation and layout wiring.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import ipywidgets as ipyw
@@ -41,6 +42,29 @@ PROGRESS_SPINNER_HTML = (
     'dur="0.8s" repeatCount="indefinite"/>'
     "</circle></svg>"
 )
+
+
+# ── Theme (light chrome, dark plot) ─────────────────────────────────────────
+
+_THEME_CSS_PATH = Path(__file__).parent / "static" / "scsketch.css"
+
+# Simple placeholder mark; swap for the final logo asset when available.
+_LOGO_HTML = (
+    '<div class="sc-logo">'
+    '<svg viewBox="0 0 26 26" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
+    '<rect width="26" height="26" rx="7" fill="#111111"/>'
+    '<path d="M5 17c3-8 6-8 8-3s5 3 8-5" fill="none" stroke="#7fb2ff" '
+    'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>'
+    "</svg><span>scSketch</span></div>"
+)
+
+
+def _theme_css() -> str:
+    """Return the scSketch theme stylesheet ('' if the file is missing)."""
+    try:
+        return _THEME_CSS_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return ""
 
 
 # ── Dataclass holding every widget reference ─────────────────────────────────
@@ -98,7 +122,7 @@ class UIControls:
 
     # ── Top-level layout widget ───────────────────────────────────────────────
     plot_wrapper: VBox
-    sidebar: GridBox
+    sidebar: VBox
     ui: VBox
 
 
@@ -218,6 +242,7 @@ def build_controls(
     )
 
     compute_predicates_wrapper = VBox([directional_controls_box, diff_controls_box])
+    compute_predicates_wrapper.add_class("sc-compute")
 
     # ── Switch to DE mode if scatter already in freeform mode ───────────────
     if scatter.widget.lasso_type == "freeform":
@@ -242,78 +267,59 @@ def build_controls(
     color_by = Dropdown(
         options=dropdown_options,
         value=color_by_default,
-        description="Color By:",
+        description="Color by",
     )
-    color_by.layout.width = "100%"
+    color_by.layout.width = "auto"
     color_by.layout.min_width = "0px"
-    color_by.style = {"description_width": "58px"}
+    color_by.style = {"description_width": "auto"}
+    color_by.add_class("sc-colorby")
 
     history_dropdown = Dropdown(
         options=[("No recorded actions", None)],
         value=None,
-        description="History:",
+        description="History",
         disabled=True,
     )
-    history_dropdown.layout.width = "100%"
     history_dropdown.layout.min_width = "0px"
-    history_dropdown.style = {"description_width": "50px"}
+    history_dropdown.style = {"description_width": "0px"}
+    history_dropdown.add_class("sc-history")
 
     gene_expression_caption = ipyw.HTML(
         "",
         layout=Layout(display="none", width="100%", min_width="0px"),
     )
-    color_history_controls = GridBox(
-        [color_by, history_dropdown],
-        layout=Layout(
-            grid_template_columns="minmax(0, 1fr) minmax(0, 1fr)",
-            width="100%",
-            max_width="100%",
-            min_width="0px",
-            grid_gap="8px",
-            overflow="hidden",
-        ),
-    )
-
+    gene_expression_caption.add_class("sc-caption")
     # ── Session import/export controls ───────────────────────────────────────
     session_filename = Text(
         value="scsketch-session.scsketch.json",
-        description="Session:",
-    )
-    session_filename.layout.width = "100%"
-    session_filename.layout.min_width = "0px"
-    session_filename.style = {"description_width": "58px"}
-    session_save = ipyw.Button(
         description="",
-        icon="save",
-        tooltip="Save scSketch session JSON",
-        layout=Layout(width="34px", min_width="0px"),
     )
+    session_filename.layout.min_width = "0px"
+    session_filename.add_class("sc-session-name")
+    session_save = ipyw.Button(
+        description="Save",
+        icon="",
+        tooltip="Save scSketch session JSON",
+        layout=Layout(width="auto", min_width="0px"),
+    )
+    session_save.add_class("sc-btn")
+    session_save.add_class("sc-btn-save")
     session_upload = ipyw.FileUpload(
         accept=".json,.scsketch.json",
         multiple=False,
-        description="",
-        icon="upload",
+        description="Upload Session",
+        icon="",
         tooltip="Load scSketch session JSON",
-        layout=Layout(width="34px", min_width="0px", overflow="hidden"),
+        layout=Layout(width="auto", min_width="0px"),
     )
+    session_upload.add_class("sc-btn")
+    session_upload.add_class("sc-btn-upload")
     session_status = ipyw.HTML(
         "",
         layout=Layout(
             display="none",
             width="100%",
             min_width="0px",
-            overflow="hidden",
-        ),
-    )
-    session_controls = GridBox(
-        [session_filename, session_save, session_upload],
-        layout=Layout(
-            grid_template_columns="minmax(0, 1fr) 34px 34px",
-            width="100%",
-            max_width="100%",
-            min_width="0px",
-            grid_gap="4px",
-            align_items="center",
             overflow="hidden",
         ),
     )
@@ -355,7 +361,7 @@ def build_controls(
         layout=Layout(
             overflow_y="auto",
             max_height="400px",
-            border="1px solid #ddd",
+            border="1px solid #e3e3df",
             padding="10px",
             display="none",
         ),
@@ -370,96 +376,91 @@ def build_controls(
             min_width="0px",
             padding="10px",
             display="none",
-            border="1px solid #ccc",
+            border="1px solid #e3e3df",
         ),
     )
 
-    # ── Sidebar ──────────────────────────────────────────────────────────────
-    sidebar = GridBox(
-        [complete_add, selections_elements, selections_predicates_wrapper, compute_predicates_wrapper],
-        layout=Layout(
-            grid_template_rows="min-content max-content 1fr min-content",
-            overflow_y="hidden",
-            height="100%",
-            min_width="0px",
-            grid_gap="4px",
-        ),
-    )
-
-    # ── Plot wrapper ─────────────────────────────────────────────────────────
-    plot_wrapper = VBox(
-        [
-            scatter.show(),
-            gene_expression_caption,
-            color_history_controls,
-            session_controls,
-            session_status,
-        ],
-        layout=Layout(
-            width="100%",
-            max_width="100%",
-            min_width="0px",
-            overflow="hidden",
-        ),
-    )
-
-    # ── Suppress Jupyter output-area overflow clipping ───────────────────────
+    # ── Theme ────────────────────────────────────────────────────────────────
+    # Injected once per build; scoped to ``.sc-root`` so nothing leaks out.
     display(
         HTML(
-            """
-<style>
-.jp-OutputArea-output, .jp-Cell-outputArea, .jp-Notebook {
-    overflow: auto !important;
-    max-height: none !important;
-}
-</style>
-"""
+            "<style>\n"
+            + _theme_css()
+            + "\n.jp-OutputArea-output, .jp-Cell-outputArea, .jp-Notebook {\n"
+            "    overflow: auto !important;\n    max-height: none !important;\n}\n"
+            "</style>"
         )
     )
 
-    # ── Top-level layout ─────────────────────────────────────────────────────
-    combined_gene_pathway_panel = GridBox(
-        [
-            VBox([sidebar], layout=Layout(overflow_y="auto", height="100%", min_width="0px")),
-            VBox(
-                [multi_view_toggle, multi_view_container, pathway_table_container],
-                layout=Layout(
-                    overflow_y="auto",
-                    height="100%",
-                    min_width="0px",
-                    grid_gap="8px",
-                ),
-            ),
-        ],
+    def _section_title(text: str) -> ipyw.HTML:
+        return ipyw.HTML(f'<div class="sc-section-title">{text}</div>')
+
+    # ── Top bar: logo | session name + Save + Upload | History ──────────────
+    logo = ipyw.HTML(_LOGO_HTML)
+    session_label = ipyw.HTML('<span class="sc-session-label">Session name</span>')
+    session_group = HBox(
+        [session_label, session_filename, session_save, session_upload],
+        layout=Layout(min_width="0px"),
+    )
+    session_group.add_class("sc-session")
+    top_bar = HBox([logo, session_group, history_dropdown])
+    top_bar.add_class("sc-topbar")
+
+    # ── Plot (dark) ──────────────────────────────────────────────────────────
+    plot_wrapper = VBox(
+        [color_by, scatter.show(), gene_expression_caption, session_status],
+        layout=Layout(width="100%", min_width="0px", overflow="hidden"),
+    )
+    plot_wrapper.add_class("sc-plot")
+
+    # ── Sidebar: SELECTIONS | GENE | compute ─────────────────────────────────
+    selections_section = VBox(
+        [_section_title("Selections"), complete_add, selections_elements],
+        layout=Layout(flex="0 0 auto"),
+    )
+    divider = VBox([], layout=Layout(width="100%"))
+    divider.add_class("sc-divider")
+    genes_section = VBox(
+        [_section_title("Gene"), selections_predicates_wrapper],
+        layout=Layout(flex="1 1 0px", min_height="0px", overflow="auto"),
+    )
+    genes_section.add_class("sc-sidebar-genes")
+    sidebar = VBox(
+        [selections_section, divider, genes_section, compute_predicates_wrapper],
+        layout=Layout(height="100%", min_width="0px", overflow="hidden"),
+    )
+    sidebar.add_class("sc-sidebar")
+
+    workspace = GridBox(
+        [plot_wrapper, sidebar],
         layout=Layout(
-            grid_template_columns="2fr 3fr",
-            grid_gap="5px",
-            align_items="flex-start",
-            height="760px",
+            grid_template_columns="minmax(0, 1fr) minmax(300px, 410px)",
+            width="100%",
             min_width="0px",
+            align_items="stretch",
         ),
     )
+    workspace.add_class("sc-workspace")
 
-    top_layout = GridBox(
-        [plot_wrapper, combined_gene_pathway_panel],
-        layout=Layout(
-            grid_template_columns="2.5fr 2.5fr",
-            grid_gap="10px",
-            height="auto",
-            align_items="flex-start",
-            width="100%",
-        ),
+    # ── Results dock: gene details (plot + pathways) and Reactome diagram ────
+    dock_details = VBox(
+        [multi_view_toggle, multi_view_container, pathway_table_container],
+        layout=Layout(flex="1 1 0px", min_width="0px", grid_gap="8px"),
     )
+    dock_row = HBox([dock_details], layout=Layout(width="100%", min_width="0px"))
+    dock_row.add_class("sc-dock-row")
+    dock = VBox(
+        [dock_row, reactome_diagram_container],
+        layout=Layout(width="100%", min_width="0px"),
+    )
+    dock.add_class("sc-dock")
 
+    # ── Top-level layout ─────────────────────────────────────────────────────
     ui = VBox(
-        [top_layout, VBox([reactome_diagram_container], layout=Layout(width="100%"))],
-        layout=Layout(
-            grid_gap="10px",
-            width="100%",
-            overflow_y="auto",
-            align_items="flex-start",
-        ),
+        [top_bar, workspace, dock],
+        layout=Layout(width="100%", min_width="0px"),
     )
+    ui.add_class("sc-root")
 
     return UIControls(
         selection_name=selection_name,
