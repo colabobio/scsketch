@@ -179,7 +179,8 @@ def build_controls(
     selection_num_subdivisions = IntText(value=5, min=2, max=10, step=1, description="Parts")
     selection_subdivide_wrapper = HBox([selection_subdivide, selection_num_subdivisions])
 
-    selections_elements = VBox(layout=Layout(grid_gap="2px"))
+    selections_elements = VBox(layout=Layout(grid_gap="6px"))
+    selections_elements.add_class("sc-selections")
     selections_predicates = VBox(layout=Layout(overflow_y="auto", height="100%", grid_gap="6px"))
     selections_predicates_wrapper = VBox([selections_predicates], layout=Layout(height="100%"))
 
@@ -187,6 +188,7 @@ def build_controls(
         [selection_name, selection_add],
         layout=Layout(grid_template_columns="1fr 40px"),
     )
+    add_controls.add_class("sc-selection-add")
     complete_add = VBox([add_controls], layout=Layout(grid_gap="4px"))
 
     # ── Directional analysis controls ────────────────────────────────────────
@@ -324,6 +326,8 @@ def build_controls(
         ),
     )
 
+    session_status.add_class("sc-session-status")
+
     # ── Result display containers ────────────────────────────────────────────
     extra_views = extra_views or {}
     has_extra_views = len(extra_views) > 0
@@ -431,10 +435,19 @@ def build_controls(
     )
     sidebar.add_class("sc-sidebar")
 
+    # Keep the existing gene-detail widgets together in the upper-right panel.
+    # Result renderers and multi-view handlers retain the same widget references.
+    details = VBox(
+        [multi_view_toggle, multi_view_container, pathway_table_container],
+        layout=Layout(height="100%", min_height="0px", min_width="0px", overflow="hidden"),
+    )
+    details.add_class("sc-details")
+    pathway_table_container.add_class("sc-gene-details")
+
     workspace = GridBox(
-        [plot_wrapper, sidebar],
+        [plot_wrapper, sidebar, details],
         layout=Layout(
-            grid_template_columns="minmax(0, 1fr) minmax(300px, 410px)",
+            grid_template_columns="minmax(0, 1.6fr) minmax(260px, 1fr) minmax(280px, 1fr)",
             width="100%",
             min_width="0px",
             align_items="stretch",
@@ -442,22 +455,12 @@ def build_controls(
     )
     workspace.add_class("sc-workspace")
 
-    # ── Results dock: gene details (plot + pathways) and Reactome diagram ────
-    dock_details = VBox(
-        [multi_view_toggle, multi_view_container, pathway_table_container],
-        layout=Layout(flex="1 1 0px", min_width="0px", grid_gap="8px"),
-    )
-    dock_row = HBox([dock_details], layout=Layout(width="100%", min_width="0px"))
-    dock_row.add_class("sc-dock-row")
-    dock = VBox(
-        [dock_row, reactome_diagram_container],
-        layout=Layout(width="100%", min_width="0px"),
-    )
-    dock.add_class("sc-dock")
+    # The full pathway diagram keeps the width available below the workspace.
+    reactome_diagram_container.add_class("sc-dock")
 
     # ── Top-level layout ─────────────────────────────────────────────────────
     ui = VBox(
-        [top_bar, workspace, dock],
+        [top_bar, workspace, reactome_diagram_container],
         layout=Layout(width="100%", min_width="0px"),
     )
     ui.add_class("sc-root")

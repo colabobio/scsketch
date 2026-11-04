@@ -341,7 +341,29 @@
   background: #33363c;
 }
 
-/* ── Results dock ────────────────────────────────────────────────────── */
+/* Upper-right gene details. Let the UMAP set the row height, then scroll
+   long gene descriptions/pathway lists inside their existing container. */
+.sc-details {
+  contain: size;
+  background: var(--sc-surface);
+  border-left: 1px solid var(--sc-border);
+  padding: 8px;
+  gap: 8px;
+}
+.sc-details .sc-gene-details {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+}
+/* The responsive projection canvas is shorter in a column than in a dock. */
+.sc-details .widget-vbox:has(> .gene-projection-plot) {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+
+/* ── Full-width Reactome diagram ─────────────────────────────────────── */
 .sc-dock {
   background: var(--sc-surface);
   border-top: 1px solid var(--sc-border);
@@ -349,4 +371,75 @@
   gap: 16px;
   min-width: 0;
 }
-.sc-dock .sc-dock-row { gap: 16px; align-items: flex-start; min-width: 0; }
+
+/* Keep save/load feedback legible inside the dark plot panel. */
+.sc-root .sc-session-status .widget-html-content,
+.sc-root .sc-session-status .widget-html-content code {
+  color: var(--sc-dark-text);
+}
+.sc-root .sc-session-status .widget-html-content code {
+  background: var(--sc-dark-control);
+}
+
+/* Notebook output widths vary independently of the browser window. */
+.sc-root { container-type: inline-size; }
+.sc-root .sc-session-name input { min-width: 0; width: 100%; }
+@container (max-width: 1000px) {
+  .sc-root .sc-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px) !important;
+  }
+  .sc-root .sc-details {
+    grid-column: 1 / -1;
+    contain: none;
+    height: auto !important;
+    max-height: 640px;
+    border-left: 0;
+    border-top: 1px solid var(--sc-border);
+  }
+  .sc-root .sc-topbar {
+    height: auto; min-height: 60px; flex-wrap: wrap;
+    padding: 12px 16px; gap: 12px; overflow: visible;
+  }
+  .sc-root .sc-session {
+    order: 2; flex: 1 0 100%; padding-left: 0; border-left: 0;
+    flex-wrap: wrap; overflow: visible;
+  }
+  .sc-root .sc-session-name { min-width: 120px; }
+  .sc-root .sc-history { margin-left: auto; }
+}
+@container (max-width: 760px) {
+  .sc-root .sc-workspace { grid-template-columns: minmax(0, 1fr) !important; }
+  .sc-root .sc-sidebar { height: auto !important; min-height: 360px; }
+  .sc-root .sc-sidebar-genes { flex: 1 1 auto !important; }
+}
+
+/* Align notebook Text/Label widgets with the adjacent native scatter buttons.
+   Their default 2px margins otherwise overlap the next grid column. */
+.sc-selection-add,
+.sc-selections > .widget-gridbox {
+  grid-template-columns: minmax(0, 1fr) 36px !important;
+  align-items: stretch;
+  min-width: 0;
+}
+.sc-selection-add { column-gap: 6px; }
+.sc-selections > .widget-gridbox { border-radius: 6px; overflow: hidden; }
+.sc-selection-add > .widget-text,
+.sc-selections .jupyter-scatter-label {
+  margin: 0;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+}
+.sc-root .sc-selection-add .widget-text input { height: 32px; }
+.sc-selections { margin-top: 6px; }
+.sc-selections .jupyter-scatter-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sc-selection-add .jupyter-scatter-button,
+.sc-selections .jupyter-scatter-button {
+  margin: 0;
+  width: 100% !important;
+  height: 32px;
+}
